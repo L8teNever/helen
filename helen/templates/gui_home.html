@@ -1,0 +1,66 @@
+{% extends "_layout.html" %}
+{% block title %}HELEN · {{ date.strftime('%a, %d.%m.') }}{% endblock %}
+{% block topbar_icon %}medication{% endblock %}
+{% block topbar_title %}
+  {% if date == today %}Heute{% else %}{{ date.strftime('%a, %d.%m.%Y') }}{% endif %}
+{% endblock %}
+{% block topbar_trailing %}
+  <span class="m3-chip" data-sync-indicator>
+    <span class="material-symbols-outlined">sync</span>
+    Live
+  </span>
+{% endblock %}
+
+{% block content %}
+<nav class="m3-day-nav">
+  <a class="m3-icon-btn" href="/?d={{ prev_date }}" aria-label="Vortag">
+    <span class="material-symbols-outlined">chevron_left</span>
+  </a>
+  <a class="m3-pill m3-pill-active" href="/">
+    <span>{{ date.strftime('%A, %d. %B %Y') }}</span>
+  </a>
+  <a class="m3-icon-btn" href="/?d={{ next_date }}" aria-label="Folgetag">
+    <span class="material-symbols-outlined">chevron_right</span>
+  </a>
+</nav>
+
+<section class="m3-card m3-card-tasks" data-task-list>
+  {% if not instances %}
+    <div class="m3-empty-hero">
+      <span class="material-symbols-outlined">check_circle</span>
+      <p>Keine Aufgaben für diesen Tag.</p>
+    </div>
+  {% else %}
+  <ul class="m3-task-list">
+    {% for i in instances %}
+    <li class="m3-task {% if i['completed'] %}m3-task-done{% endif %}" data-instance-id="{{ i['id'] }}">
+      <label class="m3-task-toggle">
+        <input type="checkbox" data-toggle {% if i['completed'] %}checked{% endif %}>
+        <span class="m3-checkbox-visual">
+          <span class="material-symbols-outlined">check</span>
+        </span>
+      </label>
+      <div class="m3-task-body">
+        <div class="m3-task-title">{{ i['def_name'] }}</div>
+        <div class="m3-task-meta">
+          <span class="material-symbols-outlined">schedule</span>
+          {{ i['due_time'] }}
+          {% if i['completed_at'] %} · erledigt{% endif %}
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<div class="m3-fab" data-fab>
+  <a href="http://localhost:8001/" target="_blank" rel="noopener" class="m3-fab-inner" title="Einstellungen">
+    <span class="material-symbols-outlined">settings</span>
+  </a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js?gui=1" defer></script>
+{% endblock %}

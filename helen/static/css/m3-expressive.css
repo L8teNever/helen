@@ -1,0 +1,60 @@
+/* M3 Expressive layer — extra springs and motion accents tuned for Android 16
+ * "Material You Expressive" feel: livelier scale-ins, bigger amplitudes,
+ * tonal blooms on interactive surfaces.
+ */
+
+@media (prefers-reduced-motion: no-preference) {
+
+  .m3-card { animation: card-rise .5s var(--md-spring-soft) both; }
+  .m3-card:nth-child(2) { animation-delay: 80ms; }
+  .m3-card:nth-child(3) { animation-delay: 160ms; }
+
+  .m3-task { animation: task-pop .45s var(--md-spring-snappy) both; }
+  .m3-task:nth-child(1) { animation-delay: 0ms; }
+  .m3-task:nth-child(2) { animation-delay: 35ms; }
+  .m3-task:nth-child(3) { animation-delay: 70ms; }
+  .m3-task:nth-child(4) { animation-delay: 105ms; }
+  .m3-task:nth-child(5) { animation-delay: 140ms; }
+  .m3-task:nth-child(6) { animation-delay: 175ms; }
+  .m3-task:nth-child(n+7) { animation-delay: 210ms; }
+
+  .m3-pill { transition: background-color .25s, color .25s, transform .35s cubic-bezier(.2,1.6,.25,1); }
+  .m3-pill:has(input:checked) { transform: translateY(-1px) scale(1.04); }
+
+  .m3-btn-filled {
+    background-image: linear-gradient(140deg,
+      var(--md-primary),
+      color-mix(in srgb, var(--md-primary) 75%, var(--md-tertiary)));
+  }
+  .m3-btn:hover { box-shadow: 0 6px 16px color-mix(in srgb, var(--md-primary) 35%, transparent); }
+
+  .m3-task-toggle input:checked + .m3-checkbox-visual {
+    animation: check-pop .45s cubic-bezier(.2,1.6,.25,1);
+  }
+
+  .m3-bounce { animation: bounce-in .6s cubic-bezier(.2,1.6,.25,1) both; }
+  .m3-fade   { animation: fade-in .45s var(--md-spring-soft) both; }
+}
+
+@keyframes card-rise {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes task-pop {
+  from { opacity: 0; transform: translateX(-8px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes check-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes bounce-in {
+  0%   { opacity: 0; transform: scale(.6) translateY(20px); }
+  60%  { opacity: 1; transform: scale(1.06) translateY(-4px); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}

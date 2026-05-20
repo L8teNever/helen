@@ -1,0 +1,73 @@
+{% extends "_layout.html" %}
+{% block title %}HELEN · Einstellungen{% endblock %}
+{% block topbar_icon %}settings{% endblock %}
+{% block topbar_title %}Einstellungen{% endblock %}
+{% block topbar_trailing %}
+  <span class="m3-chip {% if connected %}m3-chip-ok{% else %}m3-chip-warn{% endif %}">
+    <span class="material-symbols-outlined">{% if connected %}cloud_done{% else %}cloud_off{% endif %}</span>
+    {% if connected %}Google verbunden{% else %}Nicht verbunden{% endif %}
+  </span>
+{% endblock %}
+
+{% block content %}
+<nav class="m3-tabs">
+  <a class="m3-tab m3-tab-active" href="/">Start</a>
+  <a class="m3-tab" href="/tasks">Aufgaben</a>
+  <a class="m3-tab" href="/triggers">Trigger</a>
+</nav>
+
+<section class="m3-card m3-card-hero">
+  <h2 class="m3-title">Google Tasks Anbindung</h2>
+  <p class="m3-body-text">
+    HELEN synchronisiert deine Aufgaben mit einer Liste namens <strong>„Helen"</strong> in Google Tasks.
+    Du brauchst dafür eine OAuth-Client-ID aus der Google Cloud Console.
+  </p>
+
+  <details class="m3-disclosure">
+    <summary>Anleitung Google-Setup</summary>
+    <ol>
+      <li>Öffne die <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> und erstelle ein Projekt (oder benutze ein bestehendes).</li>
+      <li>Aktiviere die <strong>Tasks API</strong> unter „APIs & Services → Bibliothek".</li>
+      <li>Erstelle unter „OAuth-Consent-Screen" einen externen Consent-Screen, füge dich selbst als Test-User hinzu.</li>
+      <li>Erstelle unter „Anmeldedaten → OAuth-Client-ID" einen Client vom Typ <strong>Webanwendung</strong>.</li>
+      <li>Trage als Redirect-URI exakt ein: <code>{{ redirect_uri }}</code></li>
+      <li>Kopiere Client-ID + Client-Secret und trage sie unten ein.</li>
+    </ol>
+  </details>
+</section>
+
+<section class="m3-card">
+  <h3 class="m3-subtitle">OAuth-Zugangsdaten</h3>
+  <form method="post" action="/oauth/credentials" class="m3-form">
+    <label class="m3-field">
+      <span>Client-ID</span>
+      <input name="client_id" type="text" autocomplete="off" required
+             placeholder="{% if client_id_set %}··· bereits gespeichert ···{% else %}xxx.apps.googleusercontent.com{% endif %}">
+    </label>
+    <label class="m3-field">
+      <span>Client-Secret</span>
+      <input name="client_secret" type="password" autocomplete="off" required
+             placeholder="{% if client_secret_set %}··· bereits gespeichert ···{% endif %}">
+    </label>
+    <div class="m3-actions">
+      <button type="submit" class="m3-btn m3-btn-filled">Speichern</button>
+    </div>
+  </form>
+</section>
+
+<section class="m3-card">
+  <h3 class="m3-subtitle">Verbindung</h3>
+  {% if connected %}
+    <p class="m3-body-text">Aktive Verbindung mit Google Tasks. Helen-Liste-ID: <code>{{ helen_tasklist_id or '–' }}</code></p>
+    <form method="post" action="/oauth/disconnect">
+      <button type="submit" class="m3-btn m3-btn-outlined">Verbindung trennen</button>
+    </form>
+  {% else %}
+    <p class="m3-body-text">Noch keine Verbindung. Trage zuerst Client-ID + Client-Secret ein.</p>
+    <a href="/oauth/start" class="m3-btn m3-btn-filled m3-btn-prominent">
+      <span class="material-symbols-outlined">login</span>
+      Mit Google verbinden
+    </a>
+  {% endif %}
+</section>
+{% endblock %}

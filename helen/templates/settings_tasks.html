@@ -1,0 +1,142 @@
+{% extends "_layout.html" %}
+{% block title %}HELEN · Aufgaben{% endblock %}
+{% block topbar_icon %}checklist{% endblock %}
+{% block topbar_title %}Aufgaben verwalten{% endblock %}
+
+{% block content %}
+<nav class="m3-tabs">
+  <a class="m3-tab" href="/">Start</a>
+  <a class="m3-tab m3-tab-active" href="/tasks">Aufgaben</a>
+  <a class="m3-tab" href="/triggers">Trigger</a>
+</nav>
+
+{% if not connected %}
+<div class="m3-banner m3-banner-warn">
+  <span class="material-symbols-outlined">warning</span>
+  Noch nicht mit Google verbunden — neue Aufgaben werden erst nach der Verbindung in Google Tasks angelegt.
+</div>
+{% endif %}
+
+<section class="m3-card">
+  <h3 class="m3-subtitle">Neue Aufgabe</h3>
+  <form method="post" action="/tasks/create" class="m3-form" data-schedule-form>
+    <label class="m3-field">
+      <span>Name</span>
+      <input name="name" type="text" required placeholder="z. B. Tablette X morgens">
+    </label>
+    <label class="m3-field m3-field-compact">
+      <span>Uhrzeit</span>
+      <input name="time_of_day" type="time" required value="08:00">
+    </label>
+
+    <fieldset class="m3-fieldset">
+      <legend>Wiederholung</legend>
+      <label class="m3-radio">
+        <input type="radio" name="schedule_type" value="daily" checked data-schedule-radio>
+        <span>Täglich</span>
+      </label>
+      <label class="m3-radio">
+        <input type="radio" name="schedule_type" value="weekdays" data-schedule-radio>
+        <span>Nur an bestimmten Wochentagen</span>
+      </label>
+      <div class="m3-weekdays" data-weekdays hidden>
+        {% for code, label in [('mon','Mo'),('tue','Di'),('wed','Mi'),('thu','Do'),('fri','Fr'),('sat','Sa'),('sun','So')] %}
+        <label class="m3-pill">
+          <input type="checkbox" name="{{ code }}" value="1">
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="m3-actions">
+      <button type="submit" class="m3-btn m3-btn-filled">
+        <span class="material-symbols-outlined">add</span>
+        Aufgabe anlegen
+      </button>
+    </div>
+  </form>
+</section>
+
+<section class="m3-card">
+  <div class="m3-card-header">
+    <h3 class="m3-subtitle">Bestehende Aufgaben</h3>
+    <form method="post" action="/tasks/generate-now">
+      <button type="submit" class="m3-btn m3-btn-outlined" title="Heute fehlende Instanzen jetzt erzeugen">
+        <span class="material-symbols-outlined">refresh</span>
+        Heute generieren
+      </button>
+    </form>
+  </div>
+
+  {% if not defs %}
+    <p class="m3-empty">Noch keine Aufgaben angelegt.</p>
+  {% else %}
+  <ul class="m3-list">
+    {% for d in defs %}
+    {% set mask = d['weekdays_mask'] %}
+    <li class="m3-list-item">
+      <details class="m3-disclosure">
+        <summary>
+          <span class="m3-list-leading">
+            <span class="material-symbols-outlined">{% if d['active'] %}schedule{% else %}pause_circle{% endif %}</span>
+          </span>
+          <span class="m3-list-headline">{{ d['name'] }}</span>
+          <span class="m3-list-meta">
+            {{ d['time_of_day'] }} ·
+            {% if d['schedule_type'] == 'daily' %}täglich
+            {% else %}
+              {% set names = ['Mo','Di','Mi','Do','Fr','Sa','So'] %}
+              {% set bits = [1,2,4,8,16,32,64] %}
+              {% set picked = [] %}
+              {% for i in range(7) %}{% if mask & bits[i] %}{% set _ = picked.append(names[i]) %}{% endif %}{% endfor %}
+              {{ picked | join(' · ') }}
+            {% endif %}
+          </span>
+        </summary>
+        <form method="post" action="/tasks/{{ d['id'] }}/update" class="m3-form" data-schedule-form>
+          <label class="m3-field">
+            <span>Name</span>
+            <input name="name" type="text" value="{{ d['name'] }}" required>
+          </label>
+          <label class="m3-field m3-field-compact">
+            <span>Uhrzeit</span>
+            <input name="time_of_day" type="time" value="{{ d['time_of_day'] }}" required>
+          </label>
+          <fieldset class="m3-fieldset">
+            <legend>Wiederholung</legend>
+            <label class="m3-radio">
+              <input type="radio" name="schedule_type" value="daily" {% if d['schedule_type']=='daily' %}checked{% endif %} data-schedule-radio>
+              <span>Täglich</span>
+            </label>
+            <label class="m3-radio">
+              <input type="radio" name="schedule_type" value="weekdays" {% if d['schedule_type']=='weekdays' %}checked{% endif %} data-schedule-radio>
+              <span>Wochentage</span>
+            </label>
+            <div class="m3-weekdays" data-weekdays {% if d['schedule_type']!='weekdays' %}hidden{% endif %}>
+              {% for code, label, bit in [('mon','Mo',1),('tue','Di',2),('wed','Mi',4),('thu','Do',8),('fri','Fr',16),('sat','Sa',32),('sun','So',64)] %}
+              <label class="m3-pill">
+                <input type="checkbox" name="{{ code }}" value="1" {% if mask & bit %}checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+          <label class="m3-switch">
+            <input type="checkbox" name="active" value="1" {% if d['active'] %}checked{% endif %}>
+            <span class="m3-switch-track"><span class="m3-switch-thumb"></span></span>
+            <span>Aktiv</span>
+          </label>
+          <div class="m3-actions">
+            <button type="submit" class="m3-btn m3-btn-filled">Speichern</button>
+            <button type="submit" form="del-{{ d['id'] }}" class="m3-btn m3-btn-danger">Löschen</button>
+          </div>
+        </form>
+        <form id="del-{{ d['id'] }}" method="post" action="/tasks/{{ d['id'] }}/delete" hidden></form>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

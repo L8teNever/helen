@@ -1,0 +1,92 @@
+{% extends "_layout.html" %}
+{% block title %}HELEN · Trigger{% endblock %}
+{% block topbar_icon %}nfc{% endblock %}
+{% block topbar_title %}Trigger-Links{% endblock %}
+
+{% block content %}
+<nav class="m3-tabs">
+  <a class="m3-tab" href="/">Start</a>
+  <a class="m3-tab" href="/tasks">Aufgaben</a>
+  <a class="m3-tab m3-tab-active" href="/triggers">Trigger</a>
+</nav>
+
+<section class="m3-card">
+  <h3 class="m3-subtitle">Neuer Trigger</h3>
+  <p class="m3-body-text">
+    Lege eine feste URL an (z. B. <code>pille1</code>) und schreibe sie auf einen NFC-Tag.
+    Beim Antippen wird die Aufgabe, deren Uhrzeit der jetzt-Zeit am nächsten kommt, abgehakt.
+  </p>
+  <form method="post" action="/triggers/create" class="m3-form">
+    <label class="m3-field">
+      <span>Slug (URL-Endung)</span>
+      <input name="slug" type="text" pattern="[a-z0-9][a-z0-9-]{1,40}" required placeholder="pille1">
+    </label>
+    <label class="m3-field">
+      <span>Anzeigename</span>
+      <input name="name" type="text" required placeholder="NFC Pille Bad">
+    </label>
+    <div class="m3-actions">
+      <button type="submit" class="m3-btn m3-btn-filled">
+        <span class="material-symbols-outlined">add_link</span>
+        Anlegen
+      </button>
+    </div>
+  </form>
+</section>
+
+<section class="m3-card">
+  <h3 class="m3-subtitle">Bestehende Trigger</h3>
+  {% if not rows %}
+    <p class="m3-empty">Noch keine Trigger angelegt.</p>
+  {% else %}
+  <ul class="m3-list">
+    {% for row in rows %}
+    {% set t = row['trigger'] %}
+    <li class="m3-list-item">
+      <div class="m3-trigger-head">
+        <div>
+          <div class="m3-list-headline">{{ t['name'] }}</div>
+          <div class="m3-list-meta"><code>{{ row['url'] }}</code></div>
+        </div>
+        <div class="m3-trigger-actions">
+          <button class="m3-btn m3-btn-outlined" type="button" data-copy="{{ row['url'] }}">
+            <span class="material-symbols-outlined">content_copy</span>
+            Kopieren
+          </button>
+          <a class="m3-btn m3-btn-outlined" href="{{ row['url'] }}" target="_blank" rel="noopener">
+            <span class="material-symbols-outlined">open_in_new</span>
+            Test
+          </a>
+          <form method="post" action="/triggers/{{ t['id'] }}/delete" onsubmit="return confirm('Trigger {{ t.name }} löschen?');">
+            <button type="submit" class="m3-btn m3-btn-danger">Löschen</button>
+          </form>
+        </div>
+      </div>
+
+      <form method="post" action="/triggers/{{ t['id'] }}/assign" class="m3-form">
+        <fieldset class="m3-fieldset">
+          <legend>Zugeordnete Aufgaben (Mehrfachauswahl)</legend>
+          {% if all_defs %}
+            <div class="m3-checklist">
+            {% for d in all_defs %}
+              <label class="m3-pill">
+                <input type="checkbox" name="task_def_ids" value="{{ d['id'] }}"
+                       {% if d['id'] in row['assigned_ids'] %}checked{% endif %}>
+                <span>{{ d['name'] }} · {{ d['time_of_day'] }}</span>
+              </label>
+            {% endfor %}
+            </div>
+          {% else %}
+            <p class="m3-empty">Lege zuerst Aufgaben an.</p>
+          {% endif %}
+        </fieldset>
+        <div class="m3-actions">
+          <button type="submit" class="m3-btn m3-btn-filled">Zuordnung speichern</button>
+        </div>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

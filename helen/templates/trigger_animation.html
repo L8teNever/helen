@@ -1,0 +1,62 @@
+{% extends "_layout.html" %}
+{% block title %}
+  {% if result.status == 'completed_now' %}Erledigt!
+  {% elif result.status == 'already_completed' %}Schon erledigt
+  {% elif result.status == 'nothing_today' %}Nichts zu tun
+  {% else %}Unbekannter Trigger{% endif %}
+{% endblock %}
+{% block topbar %}{% endblock %}
+
+{% block content %}
+<div class="m3-trigger-stage m3-state-{{ result.status }}">
+  <div class="m3-trigger-bloom"></div>
+
+  {% if result.status == 'completed_now' %}
+    <div class="m3-trigger-card m3-bounce">
+      <div class="m3-trigger-icon m3-check">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="m3-check-ring" cx="32" cy="32" r="28"></circle>
+          <path class="m3-check-path" d="M18 33 L28 43 L46 23" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <h1 class="m3-display">Erledigt</h1>
+      <p class="m3-headline-soft">{{ result.task_name }}</p>
+      <p class="m3-meta">Fällig {{ result.due_time }} · Trigger {{ result.trigger_name }}</p>
+    </div>
+  {% elif result.status == 'already_completed' %}
+    <div class="m3-trigger-card m3-fade">
+      <div class="m3-trigger-icon m3-check m3-check-soft">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="m3-check-ring" cx="32" cy="32" r="28"></circle>
+          <path class="m3-check-path" d="M18 33 L28 43 L46 23" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <h1 class="m3-display">Schon erledigt</h1>
+      <p class="m3-headline-soft">{{ result.task_name }}</p>
+      <p class="m3-meta">{{ result.due_time }} · Trigger {{ result.trigger_name }}</p>
+    </div>
+  {% elif result.status == 'nothing_today' %}
+    <div class="m3-trigger-card m3-fade">
+      <div class="m3-trigger-icon m3-info">
+        <span class="material-symbols-outlined">event_available</span>
+      </div>
+      <h1 class="m3-display">Heute nichts</h1>
+      <p class="m3-headline-soft">{{ result.trigger_name or 'Trigger' }}</p>
+      <p class="m3-meta">Keine Aufgaben für heute zugeordnet.</p>
+    </div>
+  {% else %}
+    <div class="m3-trigger-card m3-fade">
+      <div class="m3-trigger-icon m3-error">
+        <span class="material-symbols-outlined">link_off</span>
+      </div>
+      <h1 class="m3-display">Unbekannter Trigger</h1>
+      <p class="m3-meta">Dieser NFC-Link ist nicht (mehr) registriert.</p>
+    </div>
+  {% endif %}
+
+  <a href="{{ gui_url }}" class="m3-btn m3-btn-outlined m3-trigger-cta">
+    <span class="material-symbols-outlined">arrow_forward</span>
+    Zur Übersicht
+  </a>
+</div>
+{% endblock %}

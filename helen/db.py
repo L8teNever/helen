@@ -1,0 +1,300 @@
+"""SQLite layer: schema, connection pool, typed helpers."""
+from __future__ import annotations
+
+import os
+import sqlite3
+import threading
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterator, Optional
+
+DB_PATH = os.environ.get("HELEN_DB_PATH", str(Path(__file__).resolve().parent.parent / "data" / "helen.db"))
+
+_lock = threading.RLock()
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    token_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_defs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    time_of_day TEXT NOT NULL,
+    schedule_type TEXT NOT NULL CHECK (schedule_type IN ('daily','weekdays')),
+    weekdays_mask INTEGER NOT NULL DEFAULT 127,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
+    due_date TEXT NOT NULL,
+    due_time TEXT NOT NULL,
+    google_task_id TEXT,
+    completed INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT,
+    last_synced_at TEXT,
+    UNIQUE(task_def_id, due_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_instances_date ON task_instances(due_date);
+CREATE INDEX IF NOT EXISTS idx_task_instances_google ON task_instances(google_task_id);
+
+CREATE TABLE IF NOT EXISTS triggers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS trigger_tasks (
+    trigger_id INTEGER NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+    task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
+    PRIMARY KEY (trigger_id, task_def_id)
+);
+"""
+
+
+def _connect() -> sqlite3.Connection:
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    return conn
+
+
+_conn: Optional[sqlite3.Connection] = None
+
+
+def get_conn() -> sqlite3.Connection:
+    global _conn
+    with _lock:
+        if _conn is None:
+            _conn = _connect()
+        return _conn
+
+
+@contextmanager
+def tx() -> Iterator[sqlite3.Connection]:
+    conn = get_conn()
+    with _lock:
+        conn.execute("BEGIN")
+        try:
+            yield conn
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def init_db() -> None:
+    conn = get_conn()
+    with _lock:
+        conn.executescript(SCHEMA)
+
+
+# ---------- config ----------
+
+def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
+    row = get_conn().execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_config(key: str, value: Optional[str]) -> None:
+    with _lock:
+        if value is None:
+            get_conn().execute("DELETE FROM config WHERE key=?", (key,))
+        else:
+            get_conn().execute(
+                "INSERT INTO config(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
+
+
+def all_config() -> dict[str, str]:
+    return {r["key"]: r["value"] for r in get_conn().execute("SELECT key,value FROM config")}
+
+
+# ---------- oauth ----------
+
+def save_oauth_token(token_json: str) -> None:
+    with _lock:
+        get_conn().execute(
+            "INSERT INTO oauth_tokens(id,token_json,updated_at) VALUES(1,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET token_json=excluded.token_json, updated_at=excluded.updated_at",
+            (token_json, datetime.utcnow().isoformat()),
+        )
+
+
+def load_oauth_token() -> Optional[str]:
+    row = get_conn().execute("SELECT token_json FROM oauth_tokens WHERE id=1").fetchone()
+    return row["token_json"] if row else None
+
+
+def clear_oauth_token() -> None:
+    with _lock:
+        get_conn().execute("DELETE FROM oauth_tokens")
+
+
+# ---------- task defs ----------
+
+def list_task_defs(active_only: bool = False) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM task_defs"
+    if active_only:
+        sql += " WHERE active=1"
+    sql += " ORDER BY time_of_day, id"
+    return list(get_conn().execute(sql))
+
+
+def get_task_def(def_id: int) -> Optional[sqlite3.Row]:
+    return get_conn().execute("SELECT * FROM task_defs WHERE id=?", (def_id,)).fetchone()
+
+
+def create_task_def(name: str, time_of_day: str, schedule_type: str, weekdays_mask: int) -> int:
+    with _lock:
+        cur = get_conn().execute(
+            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at) "
+            "VALUES(?,?,?,?,1,?)",
+            (name, time_of_day, schedule_type, weekdays_mask, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def update_task_def(def_id: int, name: str, time_of_day: str, schedule_type: str, weekdays_mask: int, active: int) -> None:
+    with _lock:
+        get_conn().execute(
+            "UPDATE task_defs SET name=?, time_of_day=?, schedule_type=?, weekdays_mask=?, active=? WHERE id=?",
+            (name, time_of_day, schedule_type, weekdays_mask, active, def_id),
+        )
+
+
+def delete_task_def(def_id: int) -> None:
+    with _lock:
+        get_conn().execute("DELETE FROM task_defs WHERE id=?", (def_id,))
+
+
+# ---------- task instances ----------
+
+def list_instances_for_date(due_date: str) -> list[sqlite3.Row]:
+    return list(get_conn().execute(
+        "SELECT ti.*, td.name AS def_name, td.time_of_day AS def_time "
+        "FROM task_instances ti JOIN task_defs td ON td.id=ti.task_def_id "
+        "WHERE ti.due_date=? ORDER BY ti.due_time, ti.id",
+        (due_date,),
+    ))
+
+
+def get_instance(inst_id: int) -> Optional[sqlite3.Row]:
+    return get_conn().execute(
+        "SELECT ti.*, td.name AS def_name FROM task_instances ti "
+        "JOIN task_defs td ON td.id=ti.task_def_id WHERE ti.id=?",
+        (inst_id,),
+    ).fetchone()
+
+
+def get_instance_by_google_id(google_task_id: str) -> Optional[sqlite3.Row]:
+    return get_conn().execute(
+        "SELECT * FROM task_instances WHERE google_task_id=?",
+        (google_task_id,),
+    ).fetchone()
+
+
+def get_or_none_instance_for(def_id: int, due_date: str) -> Optional[sqlite3.Row]:
+    return get_conn().execute(
+        "SELECT * FROM task_instances WHERE task_def_id=? AND due_date=?",
+        (def_id, due_date),
+    ).fetchone()
+
+
+def create_instance(def_id: int, due_date: str, due_time: str, google_task_id: Optional[str]) -> int:
+    with _lock:
+        cur = get_conn().execute(
+            "INSERT INTO task_instances(task_def_id,due_date,due_time,google_task_id,last_synced_at) "
+            "VALUES(?,?,?,?,?)",
+            (def_id, due_date, due_time, google_task_id, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def set_instance_google_id(inst_id: int, google_task_id: str) -> None:
+    with _lock:
+        get_conn().execute(
+            "UPDATE task_instances SET google_task_id=?, last_synced_at=? WHERE id=?",
+            (google_task_id, datetime.utcnow().isoformat(), inst_id),
+        )
+
+
+def set_instance_completed(inst_id: int, completed: bool) -> None:
+    with _lock:
+        get_conn().execute(
+            "UPDATE task_instances SET completed=?, completed_at=?, last_synced_at=? WHERE id=?",
+            (
+                1 if completed else 0,
+                datetime.utcnow().isoformat() if completed else None,
+                datetime.utcnow().isoformat(),
+                inst_id,
+            ),
+        )
+
+
+# ---------- triggers ----------
+
+def list_triggers() -> list[sqlite3.Row]:
+    return list(get_conn().execute("SELECT * FROM triggers ORDER BY created_at DESC"))
+
+
+def get_trigger_by_slug(slug: str) -> Optional[sqlite3.Row]:
+    return get_conn().execute("SELECT * FROM triggers WHERE slug=?", (slug,)).fetchone()
+
+
+def get_trigger(trigger_id: int) -> Optional[sqlite3.Row]:
+    return get_conn().execute("SELECT * FROM triggers WHERE id=?", (trigger_id,)).fetchone()
+
+
+def create_trigger(slug: str, name: str) -> int:
+    with _lock:
+        cur = get_conn().execute(
+            "INSERT INTO triggers(slug,name,created_at) VALUES(?,?,?)",
+            (slug, name, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def delete_trigger(trigger_id: int) -> None:
+    with _lock:
+        get_conn().execute("DELETE FROM triggers WHERE id=?", (trigger_id,))
+
+
+def set_trigger_tasks(trigger_id: int, task_def_ids: list[int]) -> None:
+    with _lock, tx() as conn:
+        conn.execute("DELETE FROM trigger_tasks WHERE trigger_id=?", (trigger_id,))
+        conn.executemany(
+            "INSERT INTO trigger_tasks(trigger_id,task_def_id) VALUES(?,?)",
+            [(trigger_id, t) for t in task_def_ids],
+        )
+
+
+def list_trigger_task_def_ids(trigger_id: int) -> list[int]:
+    return [r["task_def_id"] for r in get_conn().execute(
+        "SELECT task_def_id FROM trigger_tasks WHERE trigger_id=?", (trigger_id,)
+    )]
+
+
+def list_trigger_task_defs(trigger_id: int) -> list[sqlite3.Row]:
+    return list(get_conn().execute(
+        "SELECT td.* FROM task_defs td JOIN trigger_tasks tt ON tt.task_def_id=td.id "
+        "WHERE tt.trigger_id=? AND td.active=1 ORDER BY td.time_of_day",
+        (trigger_id,),
+    ))

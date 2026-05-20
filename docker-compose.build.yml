@@ -1,0 +1,7 @@
+# Override für lokalen Build statt GHCR-Pull.
+# Aufruf: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  helen:
+    build: .
+    image: helen:local
+    pull_policy: build
