@@ -29,6 +29,8 @@ async def _run_server(app, port: int, name: str):
         log_level=os.environ.get("HELEN_LOG_LEVEL", "info").lower(),
         access_log=True,
         loop="asyncio",
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )
     server = uvicorn.Server(config)
     log.info("Starting %s on :%d", name, port)
