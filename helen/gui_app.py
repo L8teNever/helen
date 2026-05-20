@@ -8,12 +8,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from helen import db, sse, sync, trigger_logic
+from helen import db, images as image_store, sse, sync, trigger_logic
 
 log = logging.getLogger("helen.gui")
 
@@ -77,6 +77,76 @@ def build_app() -> FastAPI:
             }
             for r in rows
         ]
+
+    @app.get("/api/instances/{inst_id}/preview")
+    async def instance_preview(inst_id: int):
+        inst = db.get_instance(inst_id)
+        if inst is None:
+            raise HTTPException(404)
+        d = db.get_task_def(inst["task_def_id"])
+        if d is None:
+            raise HTTPException(404)
+        return {
+            "id": inst["id"],
+            "def_id": d["id"],
+            "name": d["name"],
+            "due_time": inst["due_time"],
+            "notes": d["notes"],
+            "image_url": f"/img/{d['id']}?v={d['image_filename']}" if d["image_filename"] else None,
+            "completed": bool(inst["completed"]),
+            "completed_at": inst["completed_at"],
+        }
+
+    # ---- Image hosting (served from data/images via FileResponse) ----
+    @app.get("/img/{def_id}")
+    async def image(def_id: int):
+        d = db.get_task_def(def_id)
+        if d is None or not d["image_filename"]:
+            raise HTTPException(404)
+        p = image_store.path_for(d["image_filename"])
+        if p is None:
+            raise HTTPException(404)
+        return FileResponse(str(p), headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/preview/{def_id}", response_class=HTMLResponse)
+    async def preview_page(def_id: int, request: Request):
+        d = db.get_task_def(def_id)
+        if d is None:
+            raise HTTPException(404)
+        return templates.TemplateResponse(
+            "preview.html",
+            {
+                "request": request,
+                "def_row": d,
+                "image_url": f"/img/{d['id']}?v={d['image_filename']}" if d["image_filename"] else None,
+            },
+        )
+
+    # ---- PWA: manifest + service worker ----
+    @app.get("/manifest.webmanifest")
+    async def manifest():
+        return JSONResponse({
+            "name": "HELEN",
+            "short_name": "HELEN",
+            "description": "Tagesaufgaben und Erinnerungen",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#1d1b20",
+            "theme_color": "#6750a4",
+            "lang": "de",
+            "orientation": "portrait",
+            "icons": [
+                {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            ],
+        })
+
+    @app.get("/sw.js")
+    async def service_worker():
+        sw_path = BASE_DIR / "static" / "sw.js"
+        return FileResponse(str(sw_path), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/events")
     async def events():

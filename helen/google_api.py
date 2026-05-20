@@ -52,7 +52,7 @@ def _client_config() -> Optional[dict]:
 
 
 def redirect_url() -> str:
-    return os.environ.get("HELEN_OAUTH_REDIRECT_URL", "https://helen.l8tenever.com/oauth/callback")
+    return os.environ.get("HELEN_OAUTH_REDIRECT_URL", "https://adminhelen.l8tenever.com/oauth/callback")
 
 
 def build_flow(state: Optional[str] = None) -> Flow:

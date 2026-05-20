@@ -1,5 +1,10 @@
 {% extends "_layout.html" %}
 {% block title %}HELEN · {{ date.strftime('%a, %d.%m.') }}{% endblock %}
+{% block head_extra %}
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+{% endblock %}
 {% block topbar_icon %}medication{% endblock %}
 {% block topbar_title %}
   {% if date == today %}Heute{% else %}{{ date.strftime('%a, %d.%m.%Y') }}{% endif %}
@@ -33,7 +38,7 @@
   {% else %}
   <ul class="m3-task-list">
     {% for i in instances %}
-    <li class="m3-task {% if i['completed'] %}m3-task-done{% endif %}" data-instance-id="{{ i['id'] }}">
+    <li class="m3-task {% if i['completed'] %}m3-task-done{% endif %}" data-instance-id="{{ i['id'] }}" data-def-id="{{ i['task_def_id'] }}">
       <label class="m3-task-toggle">
         <input type="checkbox" data-toggle {% if i['completed'] %}checked{% endif %}>
         <span class="m3-checkbox-visual">
@@ -54,8 +59,28 @@
   {% endif %}
 </section>
 
+<dialog class="m3-modal" data-preview-modal>
+  <div class="m3-modal-card">
+    <button type="button" class="m3-icon-btn m3-modal-close" data-preview-close aria-label="Schließen">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+    <h2 class="m3-title" data-preview-name>—</h2>
+    <div class="m3-modal-meta">
+      <span class="m3-chip"><span class="material-symbols-outlined">schedule</span><span data-preview-time>—</span></span>
+      <span class="m3-chip" data-preview-status>—</span>
+    </div>
+    <figure class="m3-preview-figure" data-preview-figure hidden>
+      <img data-preview-image alt="">
+    </figure>
+    <div data-preview-notes-wrap hidden>
+      <h3 class="m3-subtitle">Notiz</h3>
+      <p class="m3-body-text" style="white-space: pre-wrap" data-preview-notes>—</p>
+    </div>
+  </div>
+</dialog>
+
 <div class="m3-fab" data-fab>
-  <a href="http://127.0.0.1:8001/" target="_blank" rel="noopener" class="m3-fab-inner" title="Einstellungen">
+  <a href="https://adminhelen.l8tenever.com/" target="_blank" rel="noopener" class="m3-fab-inner" title="Einstellungen">
     <span class="material-symbols-outlined">settings</span>
   </a>
 </div>
@@ -63,4 +88,11 @@
 
 {% block scripts %}
 <script src="/static/js/app.js?gui=1" defer></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(console.warn);
+    });
+  }
+</script>
 {% endblock %}

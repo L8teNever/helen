@@ -523,3 +523,62 @@ code { background: var(--md-surface-container-high); padding: 1px 6px; border-ra
 @keyframes draw-check {
   to { stroke-dashoffset: 0; }
 }
+
+/* Image preview (settings edit + preview page + modal) */
+.m3-image-preview { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.m3-image-preview img {
+  width: 140px; height: 140px; object-fit: cover;
+  border-radius: var(--md-shape-md);
+  border: 1px solid var(--md-outline-variant);
+}
+.m3-preview-figure {
+  margin: 0;
+  border-radius: var(--md-shape-md);
+  overflow: hidden;
+  background: var(--md-surface-container-high);
+  display: flex; justify-content: center;
+}
+.m3-preview-figure img {
+  max-width: 100%; max-height: 380px; object-fit: contain;
+  display: block;
+}
+.m3-preview-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+.m3-card-inner {
+  background: var(--md-surface-container-high);
+  border: none;
+  padding: 14px 16px;
+  border-radius: var(--md-shape-md);
+}
+
+/* Modal dialog */
+.m3-modal {
+  background: transparent;
+  border: none;
+  padding: 0;
+  max-width: min(560px, 92vw);
+  max-height: 90vh;
+  border-radius: var(--md-shape-xl);
+  color: inherit;
+}
+.m3-modal::backdrop {
+  background: color-mix(in srgb, var(--md-on-background) 55%, transparent);
+  backdrop-filter: blur(6px);
+  animation: fade-in .2s var(--md-spring-soft);
+}
+.m3-modal[open] { animation: bounce-in .4s cubic-bezier(.2,1.6,.25,1); }
+.m3-modal-card {
+  background: var(--md-surface-container);
+  border-radius: var(--md-shape-xl);
+  padding: 24px;
+  display: flex; flex-direction: column; gap: 16px;
+  position: relative;
+  box-shadow: var(--md-elev-3);
+  border: 1px solid var(--md-outline-variant);
+  max-height: 90vh;
+  overflow: auto;
+}
+.m3-modal-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 40px; height: 40px;
+}
+.m3-modal-meta { display: flex; gap: 8px; flex-wrap: wrap; }

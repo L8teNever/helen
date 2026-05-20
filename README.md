@@ -20,25 +20,27 @@ docker compose up -d
 ```
 
 Then open:
-- Settings → https://helen.l8tenever.com (behind Cloudflare Tunnel → `http://127.0.0.1:8001`)
-- GUI      → http://127.0.0.1:8002 (local only — NFC trigger links live here)
+- Settings (admin) → `https://adminhelen.l8tenever.com` (Cloudflare Tunnel → port 8001)
+- GUI + Triggers  → `https://helen.l8tenever.com` (Cloudflare Tunnel → port 8002), installable as PWA
 
-In the Settings UI, paste your Google OAuth client_id/client_secret (from Google Cloud Console, with the Tasks API enabled and redirect URI **`https://helen.l8tenever.com/oauth/callback`**), connect Google, and you're set.
+In the Settings UI, paste your Google OAuth client_id/client_secret (from Google Cloud Console, with the Tasks API enabled and redirect URI **`https://adminhelen.l8tenever.com/oauth/callback`**), connect Google, and you're set.
 
 ## Cloudflare Tunnel
 
-The settings UI is meant to be reached over `helen.l8tenever.com` via a Cloudflare Tunnel pointing to `http://localhost:8001` on the host. Inside `cloudflared`'s config:
+Two subdomains, one tunnel:
 
 ```yaml
 ingress:
-  - hostname: helen.l8tenever.com
+  - hostname: adminhelen.l8tenever.com   # admin / settings — keep this restricted (Cloudflare Access etc.)
     service: http://localhost:8001
+  - hostname: helen.l8tenever.com        # GUI + NFC trigger links + image hosting
+    service: http://localhost:8002
   - service: http_status:404
 ```
 
-The app trusts `X-Forwarded-*` headers (Uvicorn `proxy_headers=True`), so the OAuth callback URL is recomputed as the original `https://helen.l8tenever.com/oauth/callback`.
+Uvicorn trusts `X-Forwarded-*` headers (`proxy_headers=True`), so the OAuth callback URL is recomputed as the original `https://adminhelen.l8tenever.com/oauth/callback`.
 
-If you don't use Cloudflare, override the default redirect:
+If you don't use Cloudflare, override the redirect:
 
 ```bash
 HELEN_OAUTH_REDIRECT_URL=http://127.0.0.1:8001/oauth/callback docker compose up -d

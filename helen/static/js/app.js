@@ -62,6 +62,105 @@
   const list = document.querySelector("[data-task-list]");
   if (!list) return;
 
+  // ---- Preview modal (long-press on mobile, right-click on desktop) ----
+  const modal = document.querySelector("[data-preview-modal]");
+  const els = modal && {
+    name: modal.querySelector("[data-preview-name]"),
+    time: modal.querySelector("[data-preview-time]"),
+    status: modal.querySelector("[data-preview-status]"),
+    figure: modal.querySelector("[data-preview-figure]"),
+    image: modal.querySelector("[data-preview-image]"),
+    notesWrap: modal.querySelector("[data-preview-notes-wrap]"),
+    notes: modal.querySelector("[data-preview-notes]"),
+    close: modal.querySelector("[data-preview-close]"),
+  };
+
+  async function openPreview(instanceId) {
+    if (!modal) return;
+    try {
+      const res = await fetch(`/api/instances/${instanceId}/preview`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      els.name.textContent = d.name || "—";
+      els.time.textContent = d.due_time || "—";
+      els.status.textContent = d.completed ? "Erledigt" : "Offen";
+      els.status.classList.toggle("m3-chip-ok", !!d.completed);
+      if (d.image_url) {
+        els.image.src = d.image_url;
+        els.figure.hidden = false;
+      } else {
+        els.image.removeAttribute("src");
+        els.figure.hidden = true;
+      }
+      if (d.notes) {
+        els.notes.textContent = d.notes;
+        els.notesWrap.hidden = false;
+      } else {
+        els.notes.textContent = "";
+        els.notesWrap.hidden = true;
+      }
+      if (typeof modal.showModal === "function") modal.showModal();
+      else modal.setAttribute("open", "");
+    } catch (e) {
+      console.warn("preview failed", e);
+    }
+  }
+
+  if (modal) {
+    els.close.addEventListener("click", () => modal.close());
+    modal.addEventListener("click", (e) => {
+      // click on backdrop (the dialog element itself) closes
+      if (e.target === modal) modal.close();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && modal.open) modal.close();
+    });
+  }
+
+  // Right-click and long-press handlers
+  list.addEventListener("contextmenu", (e) => {
+    const task = e.target.closest(".m3-task");
+    if (!task) return;
+    e.preventDefault();
+    const id = task.dataset.instanceId;
+    if (id) openPreview(id);
+  });
+
+  let pressTimer = null;
+  let pressedItem = null;
+  const PRESS_MS = 450;
+  list.addEventListener("touchstart", (e) => {
+    const task = e.target.closest(".m3-task");
+    if (!task) return;
+    pressedItem = task;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      if (pressedItem && pressedItem.dataset.instanceId) {
+        // prevent the upcoming click from toggling the checkbox
+        pressedItem.dataset.suppressClick = "1";
+        openPreview(pressedItem.dataset.instanceId);
+        if (navigator.vibrate) navigator.vibrate(15);
+      }
+    }, PRESS_MS);
+  }, { passive: true });
+  const cancelPress = () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    pressedItem = null;
+  };
+  list.addEventListener("touchend", cancelPress);
+  list.addEventListener("touchmove", cancelPress);
+  list.addEventListener("touchcancel", cancelPress);
+
+  // Suppress the synthetic click that follows a long-press touch
+  list.addEventListener("click", (e) => {
+    const task = e.target.closest(".m3-task");
+    if (task && task.dataset.suppressClick) {
+      delete task.dataset.suppressClick;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
   // Optimistic checkbox toggle
   list.addEventListener("change", async (ev) => {
     const cb = ev.target;

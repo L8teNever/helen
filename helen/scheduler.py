@@ -45,6 +45,16 @@ def _due_iso_z(today: date, hhmm: str) -> str:
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+def _build_notes(d) -> str:
+    """Compose the Google Task notes: user notes + preview link (with image)."""
+    base = os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/")
+    parts = []
+    if d["notes"]:
+        parts.append(d["notes"])
+    parts.append(f"{base}/preview/{d['id']}")
+    return "\n\n".join(parts)
+
+
 def _create_one(d, day: date) -> bool:
     """Create one Google task + local instance for `day` if missing/applicable.
 
@@ -57,8 +67,9 @@ def _create_one(d, day: date) -> bool:
         return False
     title = f'{d["name"]} ({d["time_of_day"]})'
     due_iso = _due_iso_z(day, d["time_of_day"])
+    notes = _build_notes(d)
     try:
-        gt = google_api.create_task(title=title, due_iso_z=due_iso)
+        gt = google_api.create_task(title=title, due_iso_z=due_iso, notes=notes)
         db.create_instance(d["id"], day_str, d["time_of_day"], gt.get("id"))
         return True
     except Exception:

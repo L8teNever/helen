@@ -1,0 +1,27 @@
+{% extends "_layout.html" %}
+{% block title %}HELEN · {{ def_row['name'] }}{% endblock %}
+{% block topbar_icon %}image{% endblock %}
+{% block topbar_title %}{{ def_row['name'] }}{% endblock %}
+
+{% block content %}
+<section class="m3-card">
+  <div class="m3-preview-meta">
+    <span class="m3-chip"><span class="material-symbols-outlined">schedule</span> {{ def_row['time_of_day'] }}</span>
+  </div>
+  {% if image_url %}
+    <figure class="m3-preview-figure">
+      <img src="{{ image_url }}" alt="{{ def_row['name'] }}">
+    </figure>
+  {% endif %}
+  {% if def_row['notes'] %}
+    <div class="m3-card m3-card-inner">
+      <h3 class="m3-subtitle">Notiz</h3>
+      <p class="m3-body-text" style="white-space: pre-wrap">{{ def_row['notes'] }}</p>
+    </div>
+  {% endif %}
+  <a href="/" class="m3-btn m3-btn-outlined">
+    <span class="material-symbols-outlined">arrow_back</span>
+    Zur Übersicht
+  </a>
+</section>
+{% endblock %}

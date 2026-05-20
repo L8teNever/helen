@@ -10,8 +10,8 @@ services:
       - ./data:/app/data
     environment:
       - HELEN_DB_PATH=/app/data/helen.db
-      - HELEN_PUBLIC_BASE_URL=${HELEN_PUBLIC_BASE_URL:-http://127.0.0.1:8002}
-      - HELEN_OAUTH_REDIRECT_URL=${HELEN_OAUTH_REDIRECT_URL:-https://helen.l8tenever.com/oauth/callback}
+      - HELEN_PUBLIC_BASE_URL=${HELEN_PUBLIC_BASE_URL:-https://helen.l8tenever.com}
+      - HELEN_OAUTH_REDIRECT_URL=${HELEN_OAUTH_REDIRECT_URL:-https://adminhelen.l8tenever.com/oauth/callback}
       - HELEN_TRIGGER_BASE_URL=${HELEN_TRIGGER_BASE_URL:-https://helen.l8tenever.com}
       - HELEN_LOOKAHEAD_DAYS=${HELEN_LOOKAHEAD_DAYS:-14}
       - HELEN_SECRET_KEY=${HELEN_SECRET_KEY:-change-me-please-32-bytes-min-secret}

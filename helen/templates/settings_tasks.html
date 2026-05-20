@@ -19,7 +19,7 @@
 
 <section class="m3-card">
   <h3 class="m3-subtitle">Neue Aufgabe</h3>
-  <form method="post" action="/tasks/create" class="m3-form" data-schedule-form>
+  <form method="post" action="/tasks/create" class="m3-form" data-schedule-form enctype="multipart/form-data">
     <label class="m3-field">
       <span>Name</span>
       <input name="name" type="text" required placeholder="z. B. Tablette X morgens">
@@ -48,6 +48,16 @@
         {% endfor %}
       </div>
     </fieldset>
+
+    <label class="m3-field">
+      <span>Notiz (optional, taucht in Google Task auf)</span>
+      <textarea name="notes" rows="2" placeholder="Hinweise, Dosis, mit Wasser einnehmen …"></textarea>
+    </label>
+
+    <label class="m3-field">
+      <span>Bild (optional, JPEG/PNG/WebP/GIF, max 5 MiB)</span>
+      <input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    </label>
 
     <div class="m3-actions">
       <button type="submit" class="m3-btn m3-btn-filled">
@@ -94,7 +104,7 @@
             {% endif %}
           </span>
         </summary>
-        <form method="post" action="/tasks/{{ d['id'] }}/update" class="m3-form" data-schedule-form>
+        <form method="post" action="/tasks/{{ d['id'] }}/update" class="m3-form" data-schedule-form enctype="multipart/form-data">
           <label class="m3-field">
             <span>Name</span>
             <input name="name" type="text" value="{{ d['name'] }}" required>
@@ -122,6 +132,30 @@
               {% endfor %}
             </div>
           </fieldset>
+          <label class="m3-field">
+            <span>Notiz (optional)</span>
+            <textarea name="notes" rows="2">{{ d['notes'] or '' }}</textarea>
+          </label>
+
+          <fieldset class="m3-fieldset">
+            <legend>Bild</legend>
+            {% if d['image_filename'] %}
+              <div class="m3-image-preview">
+                <img src="{{ trigger_base }}/img/{{ d['id'] }}?v={{ d['image_filename'] }}" alt="" loading="lazy">
+                <label class="m3-radio">
+                  <input type="checkbox" name="remove_image" value="1">
+                  <span>Bild entfernen</span>
+                </label>
+              </div>
+            {% else %}
+              <p class="m3-empty">Noch kein Bild.</p>
+            {% endif %}
+            <label class="m3-field">
+              <span>Neues Bild hochladen (ersetzt vorhandenes)</span>
+              <input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+            </label>
+          </fieldset>
+
           <label class="m3-switch">
             <input type="checkbox" name="active" value="1" {% if d['active'] %}checked{% endif %}>
             <span class="m3-switch-track"><span class="m3-switch-thumb"></span></span>

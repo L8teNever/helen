@@ -21,13 +21,13 @@ def _generate_slug() -> str:
             return candidate
     raise RuntimeError("Konnte keinen freien Trigger-Slug erzeugen.")
 
-from fastapi import FastAPI, Form, HTTPException, Request, status
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from helen import db, google_api, scheduler, sync, trigger_logic
+from helen import db, google_api, images as image_store, scheduler
 
 log = logging.getLogger("helen.settings")
 
@@ -125,6 +125,7 @@ def build_app() -> FastAPI:
                 "connected": _connected(),
                 "defs": db.list_task_defs(),
                 "active_page": "tasks",
+                "trigger_base": os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/"),
             },
         )
 
@@ -134,6 +135,8 @@ def build_app() -> FastAPI:
         name: str = Form(...),
         time_of_day: str = Form(...),
         schedule_type: str = Form(...),
+        notes: Optional[str] = Form(None),
+        image: Optional[UploadFile] = File(None),
         mon: Optional[str] = Form(None),
         tue: Optional[str] = Form(None),
         wed: Optional[str] = Form(None),
@@ -151,7 +154,16 @@ def build_app() -> FastAPI:
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         if schedule_type == "weekdays" and mask == 0:
             raise HTTPException(400, "Mindestens einen Wochentag wählen.")
-        new_id = db.create_task_def(name.strip(), time_of_day, schedule_type, mask)
+        notes_clean = (notes or "").strip() or None
+        new_id = db.create_task_def(name.strip(), time_of_day, schedule_type, mask, notes=notes_clean)
+        if image and image.filename:
+            raw = await image.read()
+            if raw:
+                try:
+                    fname = image_store.save(new_id, raw, image.filename)
+                    db.set_task_def_image(new_id, fname)
+                except ValueError as e:
+                    request.session["flash"] = f"Aufgabe angelegt, Bild abgelehnt: {e}"
         try:
             today = date.today()
             n = scheduler.generate_window(
@@ -170,6 +182,9 @@ def build_app() -> FastAPI:
         name: str = Form(...),
         time_of_day: str = Form(...),
         schedule_type: str = Form(...),
+        notes: Optional[str] = Form(None),
+        image: Optional[UploadFile] = File(None),
+        remove_image: Optional[str] = Form(None),
         active: Optional[str] = Form(None),
         mon: Optional[str] = Form(None),
         tue: Optional[str] = Form(None),
@@ -186,7 +201,26 @@ def build_app() -> FastAPI:
             raise HTTPException(400, "Uhrzeit ungültig.")
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         new_active = 1 if active else 0
-        db.update_task_def(def_id, name.strip(), time_of_day, schedule_type, mask, new_active)
+        notes_clean = (notes or "").strip() or None
+
+        new_image_filename = existing["image_filename"]
+        if remove_image:
+            image_store.delete(existing["image_filename"])
+            new_image_filename = None
+        if image and image.filename:
+            raw = await image.read()
+            if raw:
+                try:
+                    fname = image_store.save(def_id, raw, image.filename)
+                    image_store.delete(new_image_filename)
+                    new_image_filename = fname
+                except ValueError as e:
+                    request.session["flash"] = f"Bild abgelehnt: {e}"
+
+        db.update_task_def(
+            def_id, name.strip(), time_of_day, schedule_type, mask, new_active,
+            notes=notes_clean, image_filename=new_image_filename,
+        )
         # Wipe today+future (could be stale due to schedule/time/active change),
         # then regenerate the lookahead window. Past instances are preserved as history.
         today = date.today()
@@ -205,11 +239,14 @@ def build_app() -> FastAPI:
 
     @app.post("/tasks/{def_id}/delete")
     async def delete_task(request: Request, def_id: int):
+        existing = db.get_task_def(def_id)
         try:
             wiped = scheduler.wipe_def_instances(def_id, None)
         except Exception as e:
             log.exception("Wipe before delete failed.")
             wiped = -1
+        if existing is not None:
+            image_store.delete(existing["image_filename"])
         db.delete_task_def(def_id)
         request.session["flash"] = (
             f"Aufgabe gelöscht ({wiped} Instanz(en) auch in Google Tasks entfernt)."
@@ -278,20 +315,6 @@ def build_app() -> FastAPI:
         db.delete_trigger(trigger_id)
         request.session["flash"] = "Trigger entfernt."
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
-
-    # ---- Trigger animation endpoint (mirrors the GUI app's /t/{slug}).
-    # Reachable through Cloudflare at helen.l8tenever.com/t/{slug} for NFC use.
-    @app.get("/t/{slug}", response_class=HTMLResponse)
-    async def trigger(slug: str, request: Request):
-        result = trigger_logic.resolve(slug, datetime.now())
-        if result.status == "open_match" and result.instance_id is not None:
-            await sync.toggle_instance(result.instance_id, True)
-            result.status = "completed_now"
-        return templates.TemplateResponse(
-            "trigger_animation.html",
-            {"request": request, "result": result, "gui_url": "/"},
-            status_code=200 if result.status != "unknown_trigger" else 404,
-        )
 
     return app
 

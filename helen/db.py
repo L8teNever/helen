@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS task_defs (
     schedule_type TEXT NOT NULL CHECK (schedule_type IN ('daily','weekdays')),
     weekdays_mask INTEGER NOT NULL DEFAULT 127,
     active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    image_filename TEXT,
+    notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_instances (
@@ -102,6 +104,16 @@ def init_db() -> None:
     conn = get_conn()
     with _lock:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent column adds for existing databases."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(task_defs)")}
+    if "image_filename" not in cols:
+        conn.execute("ALTER TABLE task_defs ADD COLUMN image_filename TEXT")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE task_defs ADD COLUMN notes TEXT")
 
 
 # ---------- config ----------
@@ -162,21 +174,36 @@ def get_task_def(def_id: int) -> Optional[sqlite3.Row]:
     return get_conn().execute("SELECT * FROM task_defs WHERE id=?", (def_id,)).fetchone()
 
 
-def create_task_def(name: str, time_of_day: str, schedule_type: str, weekdays_mask: int) -> int:
+def create_task_def(
+    name: str, time_of_day: str, schedule_type: str, weekdays_mask: int,
+    notes: Optional[str] = None, image_filename: Optional[str] = None,
+) -> int:
     with _lock:
         cur = get_conn().execute(
-            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at) "
-            "VALUES(?,?,?,?,1,?)",
-            (name, time_of_day, schedule_type, weekdays_mask, datetime.utcnow().isoformat()),
+            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at,notes,image_filename) "
+            "VALUES(?,?,?,?,1,?,?,?)",
+            (name, time_of_day, schedule_type, weekdays_mask, datetime.utcnow().isoformat(), notes, image_filename),
         )
         return cur.lastrowid
 
 
-def update_task_def(def_id: int, name: str, time_of_day: str, schedule_type: str, weekdays_mask: int, active: int) -> None:
+def update_task_def(
+    def_id: int, name: str, time_of_day: str, schedule_type: str, weekdays_mask: int, active: int,
+    notes: Optional[str] = None, image_filename: Optional[str] = None,
+) -> None:
     with _lock:
         get_conn().execute(
-            "UPDATE task_defs SET name=?, time_of_day=?, schedule_type=?, weekdays_mask=?, active=? WHERE id=?",
-            (name, time_of_day, schedule_type, weekdays_mask, active, def_id),
+            "UPDATE task_defs SET name=?, time_of_day=?, schedule_type=?, weekdays_mask=?, active=?, "
+            "notes=?, image_filename=? WHERE id=?",
+            (name, time_of_day, schedule_type, weekdays_mask, active, notes, image_filename, def_id),
+        )
+
+
+def set_task_def_image(def_id: int, image_filename: Optional[str]) -> None:
+    with _lock:
+        get_conn().execute(
+            "UPDATE task_defs SET image_filename=? WHERE id=?",
+            (image_filename, def_id),
         )
 
 
