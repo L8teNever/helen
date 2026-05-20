@@ -7,9 +7,16 @@ auto-refreshes the token on demand.
 """
 from __future__ import annotations
 
+import os
+# Google adds openid/email/profile scopes server-side when the OAuth consent
+# screen has them enabled. requests-oauthlib then raises because the granted
+# scope set differs from what we requested. Telling oauthlib to relax the
+# scope-equality check fixes that without affecting security (we only ever
+# *use* the tasks scope; the extras are ignored).
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 import json
 import logging
-import os
 from typing import Optional
 
 from google.auth.transport.requests import Request
