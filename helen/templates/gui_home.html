@@ -7,7 +7,7 @@
 {% endblock %}
 {% block topbar_icon %}medication{% endblock %}
 {% block topbar_title %}
-  {% if date == today %}Heute{% else %}{{ date.strftime('%a, %d.%m.%Y') }}{% endif %}
+  <span data-topbar-title>{% if date == today %}Heute{% else %}{{ date.strftime('%a, %d.%m.%Y') }}{% endif %}</span>
 {% endblock %}
 {% block topbar_trailing %}
   <span class="m3-chip" data-sync-indicator>
@@ -17,19 +17,19 @@
 {% endblock %}
 
 {% block content %}
-<nav class="m3-day-nav">
-  <a class="m3-icon-btn" href="/?d={{ prev_date }}" aria-label="Vortag">
+<nav class="m3-day-nav" data-day-nav data-current="{{ date.isoformat() }}" data-today="{{ today.isoformat() }}">
+  <a class="m3-icon-btn" href="/?d={{ prev_date }}" aria-label="Vortag" data-prev-link>
     <span class="material-symbols-outlined">chevron_left</span>
   </a>
-  <a class="m3-pill m3-pill-active" href="/">
+  <a class="m3-pill m3-pill-active" href="/" data-pill-label>
     <span>{{ date.strftime('%A, %d. %B %Y') }}</span>
   </a>
-  <a class="m3-icon-btn" href="/?d={{ next_date }}" aria-label="Folgetag">
+  <a class="m3-icon-btn" href="/?d={{ next_date }}" aria-label="Folgetag" data-next-link>
     <span class="material-symbols-outlined">chevron_right</span>
   </a>
 </nav>
 
-<section class="m3-card m3-card-tasks" data-task-list>
+<section class="m3-card m3-card-tasks" data-task-list data-task-container>
   {% if not instances %}
     <div class="m3-empty-hero">
       <span class="material-symbols-outlined">check_circle</span>

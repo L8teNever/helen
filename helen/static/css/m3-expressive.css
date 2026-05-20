@@ -58,3 +58,23 @@
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* Day navigation slide transitions */
+.m3-slide-out-left  { animation: slide-out-left .16s var(--md-spring-soft) forwards; }
+.m3-slide-out-right { animation: slide-out-right .16s var(--md-spring-soft) forwards; }
+.m3-slide-in-left   { animation: slide-in-left .22s var(--md-spring-snappy) both; }
+.m3-slide-in-right  { animation: slide-in-right .22s var(--md-spring-snappy) both; }
+
+@keyframes slide-out-left  { to { opacity: 0; transform: translateX(-24px); } }
+@keyframes slide-out-right { to { opacity: 0; transform: translateX(24px);  } }
+@keyframes slide-in-left   { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes slide-in-right  { from { opacity: 0; transform: translateX(24px);  } to { opacity: 1; transform: none; } }
+
+.m3-pill-active.m3-flash {
+  animation: pill-flash .35s var(--md-spring-snappy);
+}
+@keyframes pill-flash {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}

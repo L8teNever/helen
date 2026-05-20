@@ -62,6 +62,127 @@
   const list = document.querySelector("[data-task-list]");
   if (!list) return;
 
+  // ---- Day navigation: AJAX swap with slide animation, History API ----
+  const dayNav = document.querySelector("[data-day-nav]");
+  const topbarTitle = document.querySelector("[data-topbar-title]");
+  const pillLabel = document.querySelector("[data-pill-label] > span");
+  const prevLink = document.querySelector("[data-prev-link]");
+  const nextLink = document.querySelector("[data-next-link]");
+
+  const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const fmtTopbar = (d, today) => {
+    if (d.toDateString() === today.toDateString()) return "Heute";
+    return new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })
+      .format(d).replace(/,/g, ",");
+  };
+  const fmtPill = (d) => new Intl.DateTimeFormat("de-DE",
+    { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(d);
+
+  const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const parseIso = (s) => { const [y, m, da] = s.split("-").map(Number); return new Date(y, m - 1, da); };
+
+  function renderTasks(instances) {
+    if (!instances.length) {
+      return `<div class="m3-empty-hero">
+        <span class="material-symbols-outlined">check_circle</span>
+        <p>Keine Aufgaben für diesen Tag.</p>
+      </div>`;
+    }
+    return `<ul class="m3-task-list">` + instances.map((i) => `
+      <li class="m3-task ${i.completed ? "m3-task-done" : ""}" data-instance-id="${i.id}">
+        <label class="m3-task-toggle">
+          <input type="checkbox" data-toggle ${i.completed ? "checked" : ""}>
+          <span class="m3-checkbox-visual"><span class="material-symbols-outlined">check</span></span>
+        </label>
+        <div class="m3-task-body">
+          <div class="m3-task-title">${escapeHtml(i.name)}</div>
+          <div class="m3-task-meta">
+            <span class="material-symbols-outlined">schedule</span>
+            ${escapeHtml(i.due_time)}${i.completed_at ? " · erledigt" : ""}
+          </div>
+        </div>
+      </li>`).join("") + `</ul>`;
+  }
+
+  let navBusy = false;
+
+  async function loadDay(dateStr, direction, { push = true } = {}) {
+    if (navBusy || !dayNav) return;
+    navBusy = true;
+    const todayStr = dayNav.dataset.today;
+    const outClass = direction === "next" ? "m3-slide-out-left"
+                   : direction === "prev" ? "m3-slide-out-right" : null;
+    const inClass  = direction === "next" ? "m3-slide-in-right"
+                   : direction === "prev" ? "m3-slide-in-left"  : null;
+
+    try {
+      if (outClass) {
+        list.classList.add(outClass);
+        await new Promise((r) => setTimeout(r, 160));
+      }
+      const res = await fetch(`/api/instances?d=${encodeURIComponent(dateStr)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const tasks = await res.json();
+
+      list.classList.remove("m3-slide-out-left", "m3-slide-out-right");
+      list.innerHTML = renderTasks(tasks);
+      if (inClass) {
+        list.classList.add(inClass);
+        setTimeout(() => list.classList.remove(inClass), 240);
+      }
+
+      const target = parseIso(dateStr);
+      const today = parseIso(todayStr);
+      if (topbarTitle) topbarTitle.textContent = fmtTopbar(target, today);
+      if (pillLabel) pillLabel.textContent = fmtPill(target);
+      const newPrev = isoDay(addDays(target, -1));
+      const newNext = isoDay(addDays(target, +1));
+      if (prevLink) prevLink.setAttribute("href", `/?d=${newPrev}`);
+      if (nextLink) nextLink.setAttribute("href", `/?d=${newNext}`);
+      dayNav.dataset.current = dateStr;
+
+      const pillEl = pillLabel && pillLabel.parentElement;
+      if (pillEl) { pillEl.classList.add("m3-flash"); setTimeout(() => pillEl.classList.remove("m3-flash"), 360); }
+
+      if (push) {
+        const url = dateStr === todayStr ? "/" : `/?d=${dateStr}`;
+        history.pushState({ day: dateStr }, "", url);
+      }
+    } catch (e) {
+      console.error("loadDay failed", e);
+      list.classList.remove("m3-slide-out-left", "m3-slide-out-right");
+    } finally {
+      navBusy = false;
+    }
+  }
+
+  const navHandler = (direction) => (e) => {
+    e.preventDefault();
+    const cur = parseIso(dayNav.dataset.current);
+    const next = addDays(cur, direction === "next" ? 1 : -1);
+    loadDay(isoDay(next), direction);
+  };
+  if (prevLink && dayNav) prevLink.addEventListener("click", navHandler("prev"));
+  if (nextLink && dayNav) nextLink.addEventListener("click", navHandler("next"));
+  if (pillLabel) pillLabel.parentElement.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (dayNav.dataset.current === dayNav.dataset.today) return;
+    loadDay(dayNav.dataset.today, "prev");
+  });
+
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("d") || dayNav?.dataset?.today;
+    if (target && target !== dayNav.dataset.current) {
+      const cur = parseIso(dayNav.dataset.current);
+      const dir = parseIso(target) > cur ? "next" : "prev";
+      loadDay(target, dir, { push: false });
+    }
+  });
+
   // ---- Preview modal (long-press on mobile, right-click on desktop) ----
   const modal = document.querySelector("[data-preview-modal]");
   const els = modal && {
@@ -117,49 +238,25 @@
     });
   }
 
-  // Right-click and long-press handlers
+  // Tap/click on the task body opens the preview modal.
+  // The checkbox area (.m3-task-toggle) keeps its native behaviour and only toggles.
+  list.addEventListener("click", (e) => {
+    if (e.target.closest(".m3-task-toggle")) return;
+    const task = e.target.closest(".m3-task");
+    if (!task) return;
+    const id = task.dataset.instanceId;
+    if (id) openPreview(id);
+  });
+
+  // Right-click on desktop also opens the modal (no native menu).
   list.addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".m3-task-toggle")) return;
     const task = e.target.closest(".m3-task");
     if (!task) return;
     e.preventDefault();
     const id = task.dataset.instanceId;
     if (id) openPreview(id);
   });
-
-  let pressTimer = null;
-  let pressedItem = null;
-  const PRESS_MS = 450;
-  list.addEventListener("touchstart", (e) => {
-    const task = e.target.closest(".m3-task");
-    if (!task) return;
-    pressedItem = task;
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      if (pressedItem && pressedItem.dataset.instanceId) {
-        // prevent the upcoming click from toggling the checkbox
-        pressedItem.dataset.suppressClick = "1";
-        openPreview(pressedItem.dataset.instanceId);
-        if (navigator.vibrate) navigator.vibrate(15);
-      }
-    }, PRESS_MS);
-  }, { passive: true });
-  const cancelPress = () => {
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    pressedItem = null;
-  };
-  list.addEventListener("touchend", cancelPress);
-  list.addEventListener("touchmove", cancelPress);
-  list.addEventListener("touchcancel", cancelPress);
-
-  // Suppress the synthetic click that follows a long-press touch
-  list.addEventListener("click", (e) => {
-    const task = e.target.closest(".m3-task");
-    if (task && task.dataset.suppressClick) {
-      delete task.dataset.suppressClick;
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, true);
 
   // Optimistic checkbox toggle
   list.addEventListener("change", async (ev) => {

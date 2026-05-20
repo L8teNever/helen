@@ -407,8 +407,14 @@ code { background: var(--md-surface-container-high); padding: 1px 6px; border-ra
   border-radius: var(--md-shape-md);
   background: var(--md-surface-container-lowest);
   transition: background-color .25s var(--md-spring-soft);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .m3-task:hover { background: var(--md-surface-container); }
+.m3-task:active { background: var(--md-surface-container-high); }
+/* Checkbox area: keep the explicit toggle cursor and stop hover/active bleed */
+.m3-task-toggle { cursor: pointer; }
 .m3-task-done .m3-task-title { text-decoration: line-through; color: var(--md-on-surface-variant); }
 .m3-task-done { background: color-mix(in srgb, var(--md-success) 12%, var(--md-surface-container-lowest)); }
 
