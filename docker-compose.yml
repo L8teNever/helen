@@ -1,6 +1,6 @@
 services:
   helen:
-    image: ${HELEN_IMAGE:-ghcr.io/l8tenever/helen:latest}
+    image: ghcr.io/l8tenever/helen:latest
     pull_policy: always
     container_name: helen
     ports:
