@@ -55,26 +55,33 @@ def _build_notes(d) -> str:
     return "\n\n".join(parts)
 
 
-def _create_one(d, day: date) -> bool:
-    """Create one Google task + local instance for `day` if missing/applicable.
+def _times_of(d) -> list[str]:
+    """Return the list of HH:MM times for a task_def, falling back to legacy time_of_day."""
+    return db.parse_times(d["times"]) or [d["time_of_day"]]
 
-    Returns True if a new instance was created.
+
+def _create_one(d, day: date) -> int:
+    """Create one Google task + local instance per configured time-of-day for `day`.
+
+    Returns the number of new instances created (0 if def not due today / all exist).
     """
     if not _due_today(d, day):
-        return False
+        return 0
     day_str = day.isoformat()
-    if db.get_or_none_instance_for(d["id"], day_str) is not None:
-        return False
-    title = f'{d["name"]} ({d["time_of_day"]})'
-    due_iso = _due_iso_z(day, d["time_of_day"])
     notes = _build_notes(d)
-    try:
-        gt = google_api.create_task(title=title, due_iso_z=due_iso, notes=notes)
-        db.create_instance(d["id"], day_str, d["time_of_day"], gt.get("id"))
-        return True
-    except Exception:
-        log.exception("create_task failed for def %s on %s", d["id"], day_str)
-        return False
+    created = 0
+    for hhmm in _times_of(d):
+        if db.get_or_none_instance_for(d["id"], day_str, hhmm) is not None:
+            continue
+        title = f'{d["name"]} ({hhmm})'
+        due_iso = _due_iso_z(day, hhmm)
+        try:
+            gt = google_api.create_task(title=title, due_iso_z=due_iso, notes=notes)
+            db.create_instance(d["id"], day_str, hhmm, gt.get("id"))
+            created += 1
+        except Exception:
+            log.exception("create_task failed for def %s on %s %s", d["id"], day_str, hhmm)
+    return created
 
 
 def generate_window(start: date, end: date, only_def_id: Optional[int] = None) -> int:
@@ -91,8 +98,7 @@ def generate_window(start: date, end: date, only_def_id: Optional[int] = None) -
     cursor = start
     while cursor <= end:
         for d in defs:
-            if _create_one(d, cursor):
-                created += 1
+            created += _create_one(d, cursor)
         cursor += timedelta(days=1)
     if created:
         log.info("generate_window created %d task instance(s).", created)

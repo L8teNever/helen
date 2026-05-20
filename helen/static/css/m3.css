@@ -530,6 +530,26 @@ code { background: var(--md-surface-container-high); padding: 1px 6px; border-ra
   to { stroke-dashoffset: 0; }
 }
 
+/* Multi-time input rows */
+.m3-times-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.m3-time-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.m3-time-row input[type="time"] {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: var(--md-shape-sm);
+  border: 1px solid var(--md-outline);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface);
+  font: inherit;
+}
+.m3-time-row input[type="time"]:focus {
+  outline: none;
+  border-color: var(--md-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-primary) 30%, transparent);
+}
+
 /* Image preview (settings edit + preview page + modal) */
 .m3-image-preview { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .m3-image-preview img {

@@ -35,9 +35,7 @@ def resolve(slug: str, now: datetime) -> TriggerResult:
 
     candidates: list = []
     for def_id in def_ids:
-        inst = db.get_or_none_instance_for(def_id, today)
-        if inst is not None:
-            candidates.append(inst)
+        candidates.extend(db.list_instances_for_def_on_date(def_id, today))
 
     if not candidates:
         return TriggerResult(status="nothing_today", trigger_name=trigger["name"])

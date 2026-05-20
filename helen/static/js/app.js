@@ -2,6 +2,37 @@
 (() => {
   "use strict";
 
+  // ---- Multi-time inputs: add / remove time rows ----
+  document.addEventListener("click", (e) => {
+    const addBtn = e.target.closest("[data-add-time]");
+    if (addBtn) {
+      e.preventDefault();
+      const list = addBtn.closest("fieldset").querySelector("[data-times-list]");
+      const row = document.createElement("div");
+      row.className = "m3-time-row";
+      row.innerHTML =
+        '<input type="time" name="times" required>' +
+        '<button type="button" class="m3-icon-btn" data-remove-time aria-label="Uhrzeit entfernen">' +
+        '<span class="material-symbols-outlined">remove</span></button>';
+      list.appendChild(row);
+      row.querySelector("input").focus();
+      return;
+    }
+    const rmBtn = e.target.closest("[data-remove-time]");
+    if (rmBtn) {
+      e.preventDefault();
+      const row = rmBtn.closest(".m3-time-row");
+      const list = row.parentElement;
+      if (list.querySelectorAll(".m3-time-row").length > 1) {
+        row.remove();
+      } else {
+        // Keep at least one — just clear it instead of removing
+        const inp = row.querySelector("input");
+        if (inp) inp.value = "";
+      }
+    }
+  });
+
   // ---- Schedule form: show/hide weekday pills based on radio ----
   document.querySelectorAll("[data-schedule-form]").forEach((form) => {
     const wd = form.querySelector("[data-weekdays]");

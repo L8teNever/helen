@@ -22,12 +22,24 @@
   <form method="post" action="/tasks/create" class="m3-form" data-schedule-form enctype="multipart/form-data">
     <label class="m3-field">
       <span>Name</span>
-      <input name="name" type="text" required placeholder="z. B. Tablette X morgens">
+      <input name="name" type="text" required placeholder="z. B. Tablette X">
     </label>
-    <label class="m3-field m3-field-compact">
-      <span>Uhrzeit</span>
-      <input name="time_of_day" type="time" required value="08:00">
-    </label>
+
+    <fieldset class="m3-fieldset">
+      <legend>Uhrzeiten (eine oder mehrere)</legend>
+      <div class="m3-times-list" data-times-list>
+        <div class="m3-time-row">
+          <input type="time" name="times" required value="08:00">
+          <button type="button" class="m3-icon-btn" data-remove-time aria-label="Uhrzeit entfernen">
+            <span class="material-symbols-outlined">remove</span>
+          </button>
+        </div>
+      </div>
+      <button type="button" class="m3-btn m3-btn-outlined" data-add-time>
+        <span class="material-symbols-outlined">add</span>
+        Weitere Uhrzeit
+      </button>
+    </fieldset>
 
     <fieldset class="m3-fieldset">
       <legend>Wiederholung</legend>
@@ -93,7 +105,7 @@
           </span>
           <span class="m3-list-headline">{{ d['name'] }}</span>
           <span class="m3-list-meta">
-            {{ d['time_of_day'] }} ·
+            {{ (d['times'] or d['time_of_day']).replace(',', ' · ') }} ·
             {% if d['schedule_type'] == 'daily' %}täglich
             {% else %}
               {% set names = ['Mo','Di','Mi','Do','Fr','Sa','So'] %}
@@ -109,10 +121,24 @@
             <span>Name</span>
             <input name="name" type="text" value="{{ d['name'] }}" required>
           </label>
-          <label class="m3-field m3-field-compact">
-            <span>Uhrzeit</span>
-            <input name="time_of_day" type="time" value="{{ d['time_of_day'] }}" required>
-          </label>
+          {% set times_list = (d['times'] or d['time_of_day']).split(',') %}
+          <fieldset class="m3-fieldset">
+            <legend>Uhrzeiten</legend>
+            <div class="m3-times-list" data-times-list>
+              {% for t in times_list %}
+              <div class="m3-time-row">
+                <input type="time" name="times" required value="{{ t.strip() }}">
+                <button type="button" class="m3-icon-btn" data-remove-time aria-label="Uhrzeit entfernen">
+                  <span class="material-symbols-outlined">remove</span>
+                </button>
+              </div>
+              {% endfor %}
+            </div>
+            <button type="button" class="m3-btn m3-btn-outlined" data-add-time>
+              <span class="material-symbols-outlined">add</span>
+              Weitere Uhrzeit
+            </button>
+          </fieldset>
           <fieldset class="m3-fieldset">
             <legend>Wiederholung</legend>
             <label class="m3-radio">

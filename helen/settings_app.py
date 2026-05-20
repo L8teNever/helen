@@ -8,10 +8,30 @@ import secrets
 import string
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 SLUG_ALPHABET = string.ascii_letters + string.digits  # A-Z a-z 0-9
 SLUG_LENGTH = 8
+
+
+def _validate_times(raw: list[str]) -> list[str]:
+    """Normalize a list of HH:MM strings: drop blanks, validate format, dedupe, sort."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for t in raw:
+        s = (t or "").strip()
+        if not s:
+            continue
+        if not HHMM_RE.match(s):
+            raise HTTPException(400, f"Uhrzeit ungültig: {s!r}")
+        if s in seen:
+            continue
+        seen.add(s)
+        cleaned.append(s)
+    if not cleaned:
+        raise HTTPException(400, "Mindestens eine Uhrzeit eingeben.")
+    cleaned.sort()
+    return cleaned
 
 
 def _generate_slug() -> str:
@@ -133,7 +153,7 @@ def build_app() -> FastAPI:
     async def create_task(
         request: Request,
         name: str = Form(...),
-        time_of_day: str = Form(...),
+        times: List[str] = Form(...),
         schedule_type: str = Form(...),
         notes: Optional[str] = Form(None),
         image: Optional[UploadFile] = File(None),
@@ -147,15 +167,14 @@ def build_app() -> FastAPI:
     ):
         if not name.strip():
             raise HTTPException(400, "Name fehlt.")
-        if not HHMM_RE.match(time_of_day):
-            raise HTTPException(400, "Uhrzeit ungültig (HH:MM).")
+        times_clean = _validate_times(times)
         if schedule_type not in ("daily", "weekdays"):
             raise HTTPException(400, "Schedule-Typ ungültig.")
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         if schedule_type == "weekdays" and mask == 0:
             raise HTTPException(400, "Mindestens einen Wochentag wählen.")
         notes_clean = (notes or "").strip() or None
-        new_id = db.create_task_def(name.strip(), time_of_day, schedule_type, mask, notes=notes_clean)
+        new_id = db.create_task_def(name.strip(), times_clean, schedule_type, mask, notes=notes_clean)
         if image and image.filename:
             raw = await image.read()
             if raw:
@@ -180,7 +199,7 @@ def build_app() -> FastAPI:
         request: Request,
         def_id: int,
         name: str = Form(...),
-        time_of_day: str = Form(...),
+        times: List[str] = Form(...),
         schedule_type: str = Form(...),
         notes: Optional[str] = Form(None),
         image: Optional[UploadFile] = File(None),
@@ -197,8 +216,7 @@ def build_app() -> FastAPI:
         existing = db.get_task_def(def_id)
         if existing is None:
             raise HTTPException(404)
-        if not HHMM_RE.match(time_of_day):
-            raise HTTPException(400, "Uhrzeit ungültig.")
+        times_clean = _validate_times(times)
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         new_active = 1 if active else 0
         notes_clean = (notes or "").strip() or None
@@ -218,7 +236,7 @@ def build_app() -> FastAPI:
                     request.session["flash"] = f"Bild abgelehnt: {e}"
 
         db.update_task_def(
-            def_id, name.strip(), time_of_day, schedule_type, mask, new_active,
+            def_id, name.strip(), times_clean, schedule_type, mask, new_active,
             notes=notes_clean, image_filename=new_image_filename,
         )
         # Wipe today+future (could be stale due to schedule/time/active change),

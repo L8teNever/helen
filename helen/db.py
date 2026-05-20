@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS task_defs (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     image_filename TEXT,
-    notes TEXT
+    notes TEXT,
+    times TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS task_instances (
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS task_instances (
     completed INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     last_synced_at TEXT,
-    UNIQUE(task_def_id, due_date)
+    UNIQUE(task_def_id, due_date, due_time)
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_instances_date ON task_instances(due_date);
@@ -108,12 +109,53 @@ def init_db() -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Idempotent column adds for existing databases."""
+    """Idempotent schema migrations for existing databases."""
+    # task_defs columns
     cols = {r[1] for r in conn.execute("PRAGMA table_info(task_defs)")}
     if "image_filename" not in cols:
         conn.execute("ALTER TABLE task_defs ADD COLUMN image_filename TEXT")
     if "notes" not in cols:
         conn.execute("ALTER TABLE task_defs ADD COLUMN notes TEXT")
+    if "times" not in cols:
+        conn.execute("ALTER TABLE task_defs ADD COLUMN times TEXT NOT NULL DEFAULT ''")
+        # Seed `times` from the legacy single `time_of_day` column.
+        conn.execute("UPDATE task_defs SET times = time_of_day WHERE times = ''")
+
+    # task_instances: relax UNIQUE(task_def_id, due_date) → (task_def_id, due_date, due_time).
+    # SQLite can't ALTER a UNIQUE constraint, so we rebuild the table when the old shape is detected.
+    needs_rebuild = False
+    for idx in conn.execute("PRAGMA index_list(task_instances)").fetchall():
+        if idx[2]:  # unique
+            idx_cols = [r[2] for r in conn.execute(f'PRAGMA index_info("{idx[1]}")')]
+            if idx_cols == ["task_def_id", "due_date"]:
+                needs_rebuild = True
+                break
+    if needs_rebuild:
+        conn.executescript("""
+            PRAGMA foreign_keys=OFF;
+            BEGIN;
+            CREATE TABLE task_instances_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
+                due_date TEXT NOT NULL,
+                due_time TEXT NOT NULL,
+                google_task_id TEXT,
+                completed INTEGER NOT NULL DEFAULT 0,
+                completed_at TEXT,
+                last_synced_at TEXT,
+                UNIQUE(task_def_id, due_date, due_time)
+            );
+            INSERT INTO task_instances_new
+                (id, task_def_id, due_date, due_time, google_task_id, completed, completed_at, last_synced_at)
+                SELECT id, task_def_id, due_date, due_time, google_task_id, completed, completed_at, last_synced_at
+                FROM task_instances;
+            DROP TABLE task_instances;
+            ALTER TABLE task_instances_new RENAME TO task_instances;
+            CREATE INDEX idx_task_instances_date ON task_instances(due_date);
+            CREATE INDEX idx_task_instances_google ON task_instances(google_task_id);
+            COMMIT;
+            PRAGMA foreign_keys=ON;
+        """)
 
 
 # ---------- config ----------
@@ -174,28 +216,46 @@ def get_task_def(def_id: int) -> Optional[sqlite3.Row]:
     return get_conn().execute("SELECT * FROM task_defs WHERE id=?", (def_id,)).fetchone()
 
 
+def _times_csv(times: list[str]) -> str:
+    return ",".join(times)
+
+
+def parse_times(csv: Optional[str]) -> list[str]:
+    if not csv:
+        return []
+    return [t.strip() for t in csv.split(",") if t.strip()]
+
+
 def create_task_def(
-    name: str, time_of_day: str, schedule_type: str, weekdays_mask: int,
+    name: str, times: list[str], schedule_type: str, weekdays_mask: int,
     notes: Optional[str] = None, image_filename: Optional[str] = None,
 ) -> int:
+    if not times:
+        raise ValueError("Mindestens eine Uhrzeit erforderlich.")
+    primary = times[0]
     with _lock:
         cur = get_conn().execute(
-            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at,notes,image_filename) "
-            "VALUES(?,?,?,?,1,?,?,?)",
-            (name, time_of_day, schedule_type, weekdays_mask, datetime.utcnow().isoformat(), notes, image_filename),
+            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at,notes,image_filename,times) "
+            "VALUES(?,?,?,?,1,?,?,?,?)",
+            (name, primary, schedule_type, weekdays_mask, datetime.utcnow().isoformat(),
+             notes, image_filename, _times_csv(times)),
         )
         return cur.lastrowid
 
 
 def update_task_def(
-    def_id: int, name: str, time_of_day: str, schedule_type: str, weekdays_mask: int, active: int,
+    def_id: int, name: str, times: list[str], schedule_type: str, weekdays_mask: int, active: int,
     notes: Optional[str] = None, image_filename: Optional[str] = None,
 ) -> None:
+    if not times:
+        raise ValueError("Mindestens eine Uhrzeit erforderlich.")
+    primary = times[0]
     with _lock:
         get_conn().execute(
             "UPDATE task_defs SET name=?, time_of_day=?, schedule_type=?, weekdays_mask=?, active=?, "
-            "notes=?, image_filename=? WHERE id=?",
-            (name, time_of_day, schedule_type, weekdays_mask, active, notes, image_filename, def_id),
+            "notes=?, image_filename=?, times=? WHERE id=?",
+            (name, primary, schedule_type, weekdays_mask, active, notes, image_filename,
+             _times_csv(times), def_id),
         )
 
 
@@ -255,11 +315,23 @@ def get_instance_by_google_id(google_task_id: str) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
-def get_or_none_instance_for(def_id: int, due_date: str) -> Optional[sqlite3.Row]:
+def get_or_none_instance_for(def_id: int, due_date: str, due_time: Optional[str] = None) -> Optional[sqlite3.Row]:
+    if due_time is None:
+        return get_conn().execute(
+            "SELECT * FROM task_instances WHERE task_def_id=? AND due_date=? ORDER BY due_time LIMIT 1",
+            (def_id, due_date),
+        ).fetchone()
     return get_conn().execute(
-        "SELECT * FROM task_instances WHERE task_def_id=? AND due_date=?",
-        (def_id, due_date),
+        "SELECT * FROM task_instances WHERE task_def_id=? AND due_date=? AND due_time=?",
+        (def_id, due_date, due_time),
     ).fetchone()
+
+
+def list_instances_for_def_on_date(def_id: int, due_date: str) -> list[sqlite3.Row]:
+    return list(get_conn().execute(
+        "SELECT * FROM task_instances WHERE task_def_id=? AND due_date=? ORDER BY due_time",
+        (def_id, due_date),
+    ))
 
 
 def create_instance(def_id: int, due_date: str, due_time: str, google_task_id: Optional[str]) -> int:
