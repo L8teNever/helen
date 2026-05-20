@@ -89,7 +89,7 @@
               {% set names = ['Mo','Di','Mi','Do','Fr','Sa','So'] %}
               {% set bits = [1,2,4,8,16,32,64] %}
               {% set picked = [] %}
-              {% for i in range(7) %}{% if mask & bits[i] %}{% set _ = picked.append(names[i]) %}{% endif %}{% endfor %}
+              {% for i in range(7) %}{% if (mask // bits[i]) % 2 == 1 %}{% set _ = picked.append(names[i]) %}{% endif %}{% endfor %}
               {{ picked | join(' · ') }}
             {% endif %}
           </span>
@@ -116,7 +116,7 @@
             <div class="m3-weekdays" data-weekdays {% if d['schedule_type']!='weekdays' %}hidden{% endif %}>
               {% for code, label, bit in [('mon','Mo',1),('tue','Di',2),('wed','Mi',4),('thu','Do',8),('fri','Fr',16),('sat','Sa',32),('sun','So',64)] %}
               <label class="m3-pill">
-                <input type="checkbox" name="{{ code }}" value="1" {% if mask & bit %}checked{% endif %}>
+                <input type="checkbox" name="{{ code }}" value="1" {% if (mask // bit) % 2 == 1 %}checked{% endif %}>
                 <span>{{ label }}</span>
               </label>
               {% endfor %}
