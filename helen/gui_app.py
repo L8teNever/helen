@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from helen import db, sse, sync, trigger_logic
 
@@ -31,6 +32,8 @@ def _parse_date(s: str | None) -> date:
 
 def build_app() -> FastAPI:
     app = FastAPI(title="HELEN", docs_url=None, redoc_url=None)
+    secret = os.environ.get("HELEN_SECRET_KEY", "dev-secret-change-me-please-32-bytes-min")
+    app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax")
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
