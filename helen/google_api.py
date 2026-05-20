@@ -155,6 +155,16 @@ def create_task(title: str, due_iso_z: str, notes: str = "") -> dict:
     return svc.tasks().insert(tasklist=tasklist_id, body=body).execute()
 
 
+def delete_task(google_task_id: str) -> None:
+    svc = tasks_service()
+    tasklist_id = ensure_helen_tasklist()
+    try:
+        svc.tasks().delete(tasklist=tasklist_id, task=google_task_id).execute()
+    except HttpError as e:
+        if e.resp.status != 404:
+            raise
+
+
 def patch_task_status(google_task_id: str, completed: bool) -> dict:
     svc = tasks_service()
     tasklist_id = ensure_helen_tasklist()

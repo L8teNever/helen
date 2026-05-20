@@ -187,6 +187,23 @@ def delete_task_def(def_id: int) -> None:
 
 # ---------- task instances ----------
 
+def list_instances_by_def(def_id: int, from_date: Optional[str] = None) -> list[sqlite3.Row]:
+    if from_date is None:
+        return list(get_conn().execute(
+            "SELECT * FROM task_instances WHERE task_def_id=? ORDER BY due_date",
+            (def_id,),
+        ))
+    return list(get_conn().execute(
+        "SELECT * FROM task_instances WHERE task_def_id=? AND due_date >= ? ORDER BY due_date",
+        (def_id, from_date),
+    ))
+
+
+def delete_instance(inst_id: int) -> None:
+    with _lock:
+        get_conn().execute("DELETE FROM task_instances WHERE id=?", (inst_id,))
+
+
 def list_instances_for_date(due_date: str) -> list[sqlite3.Row]:
     return list(get_conn().execute(
         "SELECT ti.*, td.name AS def_name, td.time_of_day AS def_time "

@@ -15,6 +15,34 @@
     refresh();
   });
 
+  // ---- Dirty-tracking: show save button only when something changed ----
+  document.querySelectorAll("[data-dirty-form]").forEach((form) => {
+    const actions = form.querySelector("[data-dirty-actions]");
+    if (!actions) return;
+    const inputs = form.querySelectorAll("input, select, textarea");
+    const refresh = () => {
+      let dirty = false;
+      for (const el of inputs) {
+        if (el.type === "checkbox" || el.type === "radio") {
+          if (el.checked !== el.defaultChecked) { dirty = true; break; }
+        } else if (el.tagName === "SELECT") {
+          for (const opt of el.options) {
+            if (opt.selected !== opt.defaultSelected) { dirty = true; break; }
+          }
+          if (dirty) break;
+        } else {
+          if (el.value !== el.defaultValue) { dirty = true; break; }
+        }
+      }
+      actions.hidden = !dirty;
+    };
+    inputs.forEach((el) => {
+      el.addEventListener("change", refresh);
+      el.addEventListener("input", refresh);
+    });
+    refresh();
+  });
+
   // ---- Copy-to-clipboard buttons ----
   document.querySelectorAll("[data-copy]").forEach((btn) => {
     btn.addEventListener("click", async () => {

@@ -13,14 +13,10 @@
 <section class="m3-card">
   <h3 class="m3-subtitle">Neuer Trigger</h3>
   <p class="m3-body-text">
-    Lege eine feste URL an (z. B. <code>pille1</code>) und schreibe sie auf einen NFC-Tag.
-    Beim Antippen wird die Aufgabe, deren Uhrzeit der jetzt-Zeit am nächsten kommt, abgehakt.
+    Beim Anlegen wird automatisch ein zufälliger 8-stelliger Code (A-Z, a-z, 0-9) als URL-Endung erzeugt.
+    Den fertigen Link schreibst du dann auf einen NFC-Tag.
   </p>
   <form method="post" action="/triggers/create" class="m3-form">
-    <label class="m3-field">
-      <span>Slug (URL-Endung)</span>
-      <input name="slug" type="text" pattern="[a-z0-9][a-z0-9-]{1,40}" required placeholder="pille1">
-    </label>
     <label class="m3-field">
       <span>Anzeigename</span>
       <input name="name" type="text" required placeholder="NFC Pille Bad">
@@ -63,7 +59,7 @@
         </div>
       </div>
 
-      <form method="post" action="/triggers/{{ t['id'] }}/assign" class="m3-form">
+      <form method="post" action="/triggers/{{ t['id'] }}/assign" class="m3-form" data-dirty-form>
         <fieldset class="m3-fieldset">
           <legend>Zugeordnete Aufgaben (Mehrfachauswahl)</legend>
           {% if all_defs %}
@@ -80,7 +76,7 @@
             <p class="m3-empty">Lege zuerst Aufgaben an.</p>
           {% endif %}
         </fieldset>
-        <div class="m3-actions">
+        <div class="m3-actions" data-dirty-actions hidden>
           <button type="submit" class="m3-btn m3-btn-filled">Zuordnung speichern</button>
         </div>
       </form>

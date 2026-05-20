@@ -5,8 +5,21 @@ import logging
 import os
 import re
 import secrets
+import string
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+
+SLUG_ALPHABET = string.ascii_letters + string.digits  # A-Z a-z 0-9
+SLUG_LENGTH = 8
+
+
+def _generate_slug() -> str:
+    for _ in range(50):
+        candidate = "".join(secrets.choice(SLUG_ALPHABET) for _ in range(SLUG_LENGTH))
+        if db.get_trigger_by_slug(candidate) is None:
+            return candidate
+    raise RuntimeError("Konnte keinen freien Trigger-Slug erzeugen.")
 
 from fastapi import FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from helen import db, google_api, scheduler
+from helen import db, google_api, scheduler, sync, trigger_logic
 
 log = logging.getLogger("helen.settings")
 
@@ -138,8 +151,16 @@ def build_app() -> FastAPI:
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         if schedule_type == "weekdays" and mask == 0:
             raise HTTPException(400, "Mindestens einen Wochentag wählen.")
-        db.create_task_def(name.strip(), time_of_day, schedule_type, mask)
-        request.session["flash"] = "Aufgabe gespeichert."
+        new_id = db.create_task_def(name.strip(), time_of_day, schedule_type, mask)
+        try:
+            today = date.today()
+            n = scheduler.generate_window(
+                today, today + timedelta(days=scheduler.LOOKAHEAD_DAYS), only_def_id=new_id,
+            )
+            request.session["flash"] = f"Aufgabe gespeichert. {n} Instanz(en) angelegt."
+        except Exception as e:
+            log.exception("generate_window after create failed")
+            request.session["flash"] = f"Aufgabe gespeichert (Generierung schlug fehl: {e})."
         return RedirectResponse("/tasks", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/tasks/{def_id}/update")
@@ -164,21 +185,44 @@ def build_app() -> FastAPI:
         if not HHMM_RE.match(time_of_day):
             raise HTTPException(400, "Uhrzeit ungültig.")
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
-        db.update_task_def(def_id, name.strip(), time_of_day, schedule_type, mask, 1 if active else 0)
-        request.session["flash"] = "Aufgabe aktualisiert."
+        new_active = 1 if active else 0
+        db.update_task_def(def_id, name.strip(), time_of_day, schedule_type, mask, new_active)
+        # Wipe today+future (could be stale due to schedule/time/active change),
+        # then regenerate the lookahead window. Past instances are preserved as history.
+        today = date.today()
+        try:
+            wiped = scheduler.wipe_def_instances(def_id, today)
+            n_new = 0
+            if new_active:
+                n_new = scheduler.generate_window(
+                    today, today + timedelta(days=scheduler.LOOKAHEAD_DAYS), only_def_id=def_id,
+                )
+            request.session["flash"] = f"Aufgabe aktualisiert ({wiped} entfernt, {n_new} neu)."
+        except Exception as e:
+            log.exception("Refresh after update failed")
+            request.session["flash"] = f"Aufgabe aktualisiert (Sync schlug fehl: {e})."
         return RedirectResponse("/tasks", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/tasks/{def_id}/delete")
     async def delete_task(request: Request, def_id: int):
+        try:
+            wiped = scheduler.wipe_def_instances(def_id, None)
+        except Exception as e:
+            log.exception("Wipe before delete failed.")
+            wiped = -1
         db.delete_task_def(def_id)
-        request.session["flash"] = "Aufgabe gelöscht."
+        request.session["flash"] = (
+            f"Aufgabe gelöscht ({wiped} Instanz(en) auch in Google Tasks entfernt)."
+            if wiped >= 0
+            else "Aufgabe lokal gelöscht (Google-Cleanup schlug fehl, ggf. manuell aufräumen)."
+        )
         return RedirectResponse("/tasks", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/tasks/generate-now")
     async def generate_now(request: Request):
         try:
             n = scheduler.generate_today()
-            request.session["flash"] = f"{n} neue Tages-Instanz(en) erzeugt."
+            request.session["flash"] = f"{n} neue Instanz(en) im Lookahead-Fenster erzeugt."
         except Exception as e:
             request.session["flash"] = f"Fehler: {e}"
         return RedirectResponse("/tasks", status_code=status.HTTP_303_SEE_OTHER)
@@ -187,14 +231,14 @@ def build_app() -> FastAPI:
 
     @app.get("/triggers", response_class=HTMLResponse)
     async def triggers_page(request: Request):
-        public_base = os.environ.get("HELEN_PUBLIC_BASE_URL", "http://localhost:8002")
+        trigger_base = os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/")
         rows = []
         for t in db.list_triggers():
             assigned_ids = set(db.list_trigger_task_def_ids(t["id"]))
             rows.append({
                 "trigger": t,
                 "assigned_ids": assigned_ids,
-                "url": f"{public_base}/t/{t['slug']}",
+                "url": f"{trigger_base}/t/{t['slug']}",
             })
         return templates.TemplateResponse(
             "settings_triggers.html",
@@ -210,18 +254,13 @@ def build_app() -> FastAPI:
     @app.post("/triggers/create")
     async def create_trigger(
         request: Request,
-        slug: str = Form(...),
         name: str = Form(...),
     ):
-        slug_norm = slug.strip().lower()
-        if not SLUG_RE.match(slug_norm):
-            raise HTTPException(400, "Slug ungültig: nur a-z, 0-9, '-', 2-41 Zeichen.")
         if not name.strip():
             raise HTTPException(400, "Name fehlt.")
-        if db.get_trigger_by_slug(slug_norm) is not None:
-            raise HTTPException(400, "Slug bereits vergeben.")
-        db.create_trigger(slug_norm, name.strip())
-        request.session["flash"] = "Trigger angelegt."
+        slug = _generate_slug()
+        db.create_trigger(slug, name.strip())
+        request.session["flash"] = f"Trigger angelegt. Slug: {slug}"
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/triggers/{trigger_id}/assign")
@@ -239,6 +278,20 @@ def build_app() -> FastAPI:
         db.delete_trigger(trigger_id)
         request.session["flash"] = "Trigger entfernt."
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ---- Trigger animation endpoint (mirrors the GUI app's /t/{slug}).
+    # Reachable through Cloudflare at helen.l8tenever.com/t/{slug} for NFC use.
+    @app.get("/t/{slug}", response_class=HTMLResponse)
+    async def trigger(slug: str, request: Request):
+        result = trigger_logic.resolve(slug, datetime.now())
+        if result.status == "open_match" and result.instance_id is not None:
+            await sync.toggle_instance(result.instance_id, True)
+            result.status = "completed_now"
+        return templates.TemplateResponse(
+            "trigger_animation.html",
+            {"request": request, "result": result, "gui_url": "/"},
+            status_code=200 if result.status != "unknown_trigger" else 404,
+        )
 
     return app
 
