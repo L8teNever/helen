@@ -79,7 +79,7 @@ def build_app() -> FastAPI:
                 "client_id_set": bool(db.get_config("oauth_client_id")),
                 "client_secret_set": bool(db.get_config("oauth_client_secret")),
                 "redirect_uri": google_api.redirect_url(),
-                "helen_tasklist_id": db.get_config("helen_tasklist_id"),
+                "helen_calendar_id": db.get_config("helen_calendar_id"),
                 "active_page": "home",
             },
         )
@@ -117,12 +117,12 @@ def build_app() -> FastAPI:
             raise HTTPException(400, "OAuth state mismatch.")
         try:
             google_api.exchange_code(got_state, str(request.url))
-            google_api.ensure_helen_tasklist()
+            google_api.ensure_helen_calendar()
             try:
                 scheduler.generate_today()
             except Exception:
                 log.exception("Initial generate_today after OAuth failed.")
-            request.session["flash"] = "Mit Google verbunden. Helen-Liste bereit."
+            request.session["flash"] = "Mit Google verbunden. Helen-Kalender bereit."
         except Exception as e:
             log.exception("OAuth exchange failed.")
             request.session["flash"] = f"OAuth-Fehler: {e}"
@@ -267,7 +267,7 @@ def build_app() -> FastAPI:
             image_store.delete(existing["image_filename"])
         db.delete_task_def(def_id)
         request.session["flash"] = (
-            f"Aufgabe gelöscht ({wiped} Instanz(en) auch in Google Tasks entfernt)."
+            f"Aufgabe gelöscht ({wiped} Termin(e) auch im Google Kalender entfernt)."
             if wiped >= 0
             else "Aufgabe lokal gelöscht (Google-Cleanup schlug fehl, ggf. manuell aufräumen)."
         )

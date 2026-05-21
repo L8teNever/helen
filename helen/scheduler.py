@@ -35,19 +35,21 @@ def _due_today(task_def, today: date) -> bool:
     return bool(task_def["weekdays_mask"] & bit)
 
 
-def _due_iso_z(today: date, hhmm: str) -> str:
-    """Build an RFC-3339 timestamp for `today HH:MM` with explicit offset.
+EVENT_DURATION_MIN = int(os.environ.get("HELEN_EVENT_DURATION_MIN", "30"))
 
-    Google Tasks v1 historically discarded the time portion of `due` (all-day
-    only). Newer Tasks clients preserve the time when the timestamp is
-    timezone-aware with an explicit offset (e.g. `+02:00`) rather than the
-    `Z`-notation we previously sent. TZ defaults to Europe/Berlin and is
-    overridable via HELEN_TZ.
+
+def _event_window(today: date, hhmm: str) -> tuple[str, str, str]:
+    """Return (start_iso, end_iso, tz_name) for an event at `today HH:MM`.
+
+    Start has the configured TZ offset (e.g. `+02:00`); end is start +
+    EVENT_DURATION_MIN minutes. TZ defaults to Europe/Berlin via HELEN_TZ.
     """
-    tz = ZoneInfo(os.environ.get("HELEN_TZ", "Europe/Berlin"))
+    tz_name = os.environ.get("HELEN_TZ", "Europe/Berlin")
+    tz = ZoneInfo(tz_name)
     h, m = hhmm.split(":")
-    local_dt = datetime(today.year, today.month, today.day, int(h), int(m), tzinfo=tz)
-    return local_dt.isoformat(timespec="seconds")
+    start = datetime(today.year, today.month, today.day, int(h), int(m), tzinfo=tz)
+    end = start + timedelta(minutes=EVENT_DURATION_MIN)
+    return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds"), tz_name
 
 
 def _build_notes(d) -> str:
@@ -66,26 +68,29 @@ def _times_of(d) -> list[str]:
 
 
 def _create_one(d, day: date) -> int:
-    """Create one Google task + local instance per configured time-of-day for `day`.
+    """Create one Calendar event + local instance per configured time-of-day for `day`.
 
     Returns the number of new instances created (0 if def not due today / all exist).
     """
     if not _due_today(d, day):
         return 0
     day_str = day.isoformat()
-    notes = _build_notes(d)
+    description = _build_notes(d)
     created = 0
     for hhmm in _times_of(d):
         if db.get_or_none_instance_for(d["id"], day_str, hhmm) is not None:
             continue
-        title = f'{d["name"]} ({hhmm})'
-        due_iso = _due_iso_z(day, hhmm)
+        title = d["name"]
+        start_iso, end_iso, tz_name = _event_window(day, hhmm)
         try:
-            gt = google_api.create_task(title=title, due_iso_z=due_iso, notes=notes)
-            db.create_instance(d["id"], day_str, hhmm, gt.get("id"))
+            ev = google_api.create_event(
+                title=title, start_iso=start_iso, end_iso=end_iso,
+                tz=tz_name, description=description,
+            )
+            db.create_instance(d["id"], day_str, hhmm, ev.get("id"))
             created += 1
         except Exception:
-            log.exception("create_task failed for def %s on %s %s", d["id"], day_str, hhmm)
+            log.exception("create_event failed for def %s on %s %s", d["id"], day_str, hhmm)
     return created
 
 
@@ -131,9 +136,9 @@ def wipe_def_instances(def_id: int, from_date: Optional[date] = None) -> int:
         gid = r["google_task_id"]
         if gid and connected:
             try:
-                google_api.delete_task(gid)
+                google_api.delete_event(gid)
             except Exception:
-                log.exception("Failed to delete Google task %s", gid)
+                log.exception("Failed to delete Google event %s", gid)
         db.delete_instance(r["id"])
         removed += 1
     if removed:

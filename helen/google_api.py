@@ -1,9 +1,13 @@
-"""Google OAuth + Tasks API wrapper.
+"""Google OAuth + Calendar API wrapper.
 
 Single-user setup: client_id/client_secret are stored in the SQLite `config`
 table (entered through the settings UI), the OAuth refresh-token is stored
-in `oauth_tokens`. All API calls run through `tasks_service()` which
+in `oauth_tokens`. All API calls run through `calendar_service()` which
 auto-refreshes the token on demand.
+
+Helen creates and uses a dedicated calendar named "Helen". Each scheduled
+task instance becomes a timed event there. Completion is signalled by the
+event's `colorId` (graphite = done).
 """
 from __future__ import annotations
 
@@ -11,8 +15,7 @@ import os
 # Google adds openid/email/profile scopes server-side when the OAuth consent
 # screen has them enabled. requests-oauthlib then raises because the granted
 # scope set differs from what we requested. Telling oauthlib to relax the
-# scope-equality check fixes that without affecting security (we only ever
-# *use* the tasks scope; the extras are ignored).
+# scope-equality check fixes that without affecting security.
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 import json
@@ -29,8 +32,9 @@ from helen import db
 
 log = logging.getLogger("helen.google")
 
-SCOPES = ["https://www.googleapis.com/auth/tasks"]
-HELEN_LIST_TITLE = "Helen"
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+HELEN_CAL_TITLE = "Helen"
+COMPLETED_COLOR_ID = "8"  # graphite — visually "done"
 
 
 # ---------- OAuth flow ----------
@@ -106,87 +110,105 @@ def is_connected() -> bool:
 
 def disconnect() -> None:
     db.clear_oauth_token()
+    db.set_config("helen_calendar_id", None)
+    # Wipe the legacy Tasks list id so a re-auth doesn't try to reuse it.
     db.set_config("helen_tasklist_id", None)
 
 
-# ---------- Tasks service ----------
+# ---------- Calendar service ----------
 
-def tasks_service():
+def calendar_service():
     creds = load_credentials()
     if creds is None:
         raise RuntimeError("Nicht mit Google verbunden.")
-    return build("tasks", "v1", credentials=creds, cache_discovery=False)
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
-def ensure_helen_tasklist() -> str:
-    """Find or create the 'Helen' task list. Returns its id."""
-    existing = db.get_config("helen_tasklist_id")
-    svc = tasks_service()
+def ensure_helen_calendar() -> str:
+    """Find or create the 'Helen' calendar. Returns its id."""
+    existing = db.get_config("helen_calendar_id")
+    svc = calendar_service()
     if existing:
         try:
-            svc.tasklists().get(tasklist=existing).execute()
+            svc.calendars().get(calendarId=existing).execute()
             return existing
         except HttpError as e:
             if e.resp.status != 404:
                 raise
-            db.set_config("helen_tasklist_id", None)
+            db.set_config("helen_calendar_id", None)
 
     page_token = None
     while True:
-        resp = svc.tasklists().list(maxResults=100, pageToken=page_token).execute()
+        resp = svc.calendarList().list(pageToken=page_token).execute()
         for item in resp.get("items", []):
-            if item.get("title") == HELEN_LIST_TITLE:
-                db.set_config("helen_tasklist_id", item["id"])
+            if item.get("summary") == HELEN_CAL_TITLE:
+                db.set_config("helen_calendar_id", item["id"])
                 return item["id"]
         page_token = resp.get("nextPageToken")
         if not page_token:
             break
 
-    created = svc.tasklists().insert(body={"title": HELEN_LIST_TITLE}).execute()
-    db.set_config("helen_tasklist_id", created["id"])
-    log.info("Created Helen task list: %s", created["id"])
+    tz = os.environ.get("HELEN_TZ", "Europe/Berlin")
+    created = svc.calendars().insert(
+        body={"summary": HELEN_CAL_TITLE, "timeZone": tz}
+    ).execute()
+    db.set_config("helen_calendar_id", created["id"])
+    log.info("Created Helen calendar: %s", created["id"])
     return created["id"]
 
 
-def create_task(title: str, due_iso_z: str, notes: str = "") -> dict:
-    svc = tasks_service()
-    tasklist_id = ensure_helen_tasklist()
-    body = {"title": title, "due": due_iso_z, "notes": notes}
-    return svc.tasks().insert(tasklist=tasklist_id, body=body).execute()
+def create_event(
+    title: str, start_iso: str, end_iso: str, tz: str, description: str = "",
+) -> dict:
+    svc = calendar_service()
+    cal_id = ensure_helen_calendar()
+    body = {
+        "summary": title,
+        "description": description,
+        "start": {"dateTime": start_iso, "timeZone": tz},
+        "end": {"dateTime": end_iso, "timeZone": tz},
+    }
+    return svc.events().insert(calendarId=cal_id, body=body).execute()
 
 
-def delete_task(google_task_id: str) -> None:
-    svc = tasks_service()
-    tasklist_id = ensure_helen_tasklist()
+def delete_event(event_id: str) -> None:
+    svc = calendar_service()
+    cal_id = ensure_helen_calendar()
     try:
-        svc.tasks().delete(tasklist=tasklist_id, task=google_task_id).execute()
+        svc.events().delete(calendarId=cal_id, eventId=event_id).execute()
     except HttpError as e:
-        if e.resp.status != 404:
+        if e.resp.status not in (404, 410):
             raise
 
 
-def patch_task_status(google_task_id: str, completed: bool) -> dict:
-    svc = tasks_service()
-    tasklist_id = ensure_helen_tasklist()
-    body = {"status": "completed" if completed else "needsAction"}
-    if not completed:
-        body["completed"] = None
-    return svc.tasks().patch(tasklist=tasklist_id, task=google_task_id, body=body).execute()
+def patch_event_completed(event_id: str, completed: bool) -> dict:
+    """Mark/unmark an event done by toggling its colour (graphite = done)."""
+    svc = calendar_service()
+    cal_id = ensure_helen_calendar()
+    body = {"colorId": COMPLETED_COLOR_ID if completed else None}
+    return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
 
 
-def list_tasks(show_completed: bool = True, show_hidden: bool = True) -> list[dict]:
-    svc = tasks_service()
-    tasklist_id = ensure_helen_tasklist()
+def list_events(
+    time_min_iso: Optional[str] = None, time_max_iso: Optional[str] = None,
+) -> list[dict]:
+    svc = calendar_service()
+    cal_id = ensure_helen_calendar()
     items: list[dict] = []
     page_token = None
     while True:
-        resp = svc.tasks().list(
-            tasklist=tasklist_id,
-            showCompleted=show_completed,
-            showHidden=show_hidden,
-            maxResults=100,
-            pageToken=page_token,
-        ).execute()
+        kwargs: dict = {
+            "calendarId": cal_id,
+            "maxResults": 2500,
+            "singleEvents": True,
+            "showDeleted": False,
+            "pageToken": page_token,
+        }
+        if time_min_iso:
+            kwargs["timeMin"] = time_min_iso
+        if time_max_iso:
+            kwargs["timeMax"] = time_max_iso
+        resp = svc.events().list(**kwargs).execute()
         items.extend(resp.get("items", []))
         page_token = resp.get("nextPageToken")
         if not page_token:
