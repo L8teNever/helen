@@ -1,10 +1,16 @@
-"""APScheduler jobs: daily task generation + Google polling."""
+"""APScheduler jobs: bundle generation + Google polling.
+
+Multiple task_defs that fire at the same (date, time) collapse into ONE
+Google Calendar event (a "bundle"). The event's summary carries a counter
+`{done}/{total}` and its description holds a checklist of every member with
+a preview link. Reconciliation is centralised in `reconcile_bundle`.
+"""
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -19,11 +25,10 @@ log = logging.getLogger("helen.scheduler")
 _scheduler: Optional[BackgroundScheduler] = None
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
-# Weekday bitmask: Mon=1 Tue=2 Wed=4 Thu=8 Fri=16 Sat=32 Sun=64
 WEEKDAY_BITS = [1, 2, 4, 8, 16, 32, 64]
-
-# How many days ahead to pre-create task instances in Google Tasks.
 LOOKAHEAD_DAYS = int(os.environ.get("HELEN_LOOKAHEAD_DAYS", "14"))
+EVENT_DURATION_MIN = int(os.environ.get("HELEN_EVENT_DURATION_MIN", "30"))
+TRIGGER_BASE = os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/")
 
 
 def _due_today(task_def, today: date) -> bool:
@@ -35,15 +40,8 @@ def _due_today(task_def, today: date) -> bool:
     return bool(task_def["weekdays_mask"] & bit)
 
 
-EVENT_DURATION_MIN = int(os.environ.get("HELEN_EVENT_DURATION_MIN", "30"))
-
-
 def _event_window(today: date, hhmm: str) -> tuple[str, str, str]:
-    """Return (start_iso, end_iso, tz_name) for an event at `today HH:MM`.
-
-    Start has the configured TZ offset (e.g. `+02:00`); end is start +
-    EVENT_DURATION_MIN minutes. TZ defaults to Europe/Berlin via HELEN_TZ.
-    """
+    """Return (start_iso, end_iso, tz_name) for an event at `today HH:MM`."""
     tz_name = os.environ.get("HELEN_TZ", "Europe/Berlin")
     tz = ZoneInfo(tz_name)
     h, m = hhmm.split(":")
@@ -52,95 +50,191 @@ def _event_window(today: date, hhmm: str) -> tuple[str, str, str]:
     return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds"), tz_name
 
 
-def _build_notes(d) -> str:
-    """Compose the Google Task notes: user notes + preview link (with image)."""
-    base = os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/")
-    parts = []
-    if d["notes"]:
-        parts.append(d["notes"])
-    parts.append(f"{base}/preview/{d['id']}")
-    return "\n\n".join(parts)
-
-
 def _times_of(d) -> list[str]:
-    """Return the list of HH:MM times for a task_def, falling back to legacy time_of_day."""
     return db.parse_times(d["times"]) or [d["time_of_day"]]
 
 
-def _create_one(d, day: date) -> int:
-    """Create one Calendar event + local instance per configured time-of-day for `day`.
+def _truncate_names(names: list[str], limit: int = 60) -> str:
+    joined = ", ".join(names)
+    if len(joined) <= limit:
+        return joined
+    out: list[str] = []
+    used = 0
+    for n in names:
+        sep = 2 if out else 0
+        if used + sep + len(n) > limit - 1:
+            out.append("…")
+            break
+        out.append(n)
+        used += sep + len(n)
+    return ", ".join(out)
 
-    Returns the number of new instances created (0 if def not due today / all exist).
+
+def _render_bundle(insts: list) -> tuple[str, str, bool]:
+    """Build (summary, description, all_done) from a list of bundle instances.
+
+    Each row must include `def_name`, `def_notes`, `task_def_id`, `completed`.
+    Single-member bundles render as a plain titled event; multi-member bundles
+    show a `{done}/{total} — names` summary and a checklist description.
     """
-    if not _due_today(d, day):
-        return 0
-    day_str = day.isoformat()
-    description = _build_notes(d)
-    created = 0
-    for hhmm in _times_of(d):
-        if db.get_or_none_instance_for(d["id"], day_str, hhmm) is not None:
-            continue
-        title = d["name"]
-        start_iso, end_iso, tz_name = _event_window(day, hhmm)
+    total = len(insts)
+    done = sum(1 for i in insts if i["completed"])
+    all_done = total > 0 and done == total
+
+    if total == 1:
+        i = insts[0]
+        summary = i["def_name"]
+        parts: list[str] = []
+        if i["def_notes"]:
+            parts.append(i["def_notes"])
+        parts.append(f"{TRIGGER_BASE}/preview/{i['task_def_id']}")
+        return summary, "\n\n".join(parts), all_done
+
+    names = [i["def_name"] for i in insts]
+    summary = f"{done}/{total} — {_truncate_names(names)}"
+
+    lines: list[str] = []
+    for i in insts:
+        marker = "[x]" if i["completed"] else "[ ]"
+        link = f"{TRIGGER_BASE}/preview/{i['task_def_id']}"
+        lines.append(f"{marker} {i['def_name']} — {link}")
+        if i["def_notes"]:
+            for nl in i["def_notes"].splitlines():
+                lines.append(f"    {nl}")
+    return summary, "\n".join(lines), all_done
+
+
+def reconcile_bundle(day_str: str, hhmm: str) -> None:
+    """Bring the Google Calendar event for (day_str, hhmm) in sync with local state.
+
+    Creates the event if no member yet has an id; otherwise patches summary,
+    description, and completion colour. Caller is responsible for deleting
+    events when no bundle members remain.
+    """
+    if not google_api.is_connected():
+        return
+    insts = db.list_instances_for_bundle(day_str, hhmm)
+    if not insts:
+        return
+
+    # Legacy state: in the pre-bundle era each member had its own Calendar
+    # event. Keep the first id and drop the rest so we collapse into a single
+    # event without leaving orphans behind.
+    ids_seen = list(dict.fromkeys(i["google_task_id"] for i in insts if i["google_task_id"]))
+    existing_event_id = ids_seen[0] if ids_seen else None
+    for stale_id in ids_seen[1:]:
         try:
-            ev = google_api.create_event(
-                title=title, start_iso=start_iso, end_iso=end_iso,
-                tz=tz_name, description=description,
-            )
-            db.create_instance(d["id"], day_str, hhmm, ev.get("id"))
-            created += 1
+            google_api.delete_event(stale_id)
         except Exception:
-            log.exception("create_event failed for def %s on %s %s", d["id"], day_str, hhmm)
-    return created
+            log.exception("Failed to delete legacy per-task event %s", stale_id)
+
+    summary, description, all_done = _render_bundle(insts)
+
+    if existing_event_id:
+        try:
+            google_api.update_event(existing_event_id, summary, description, all_done)
+        except Exception:
+            log.exception("update_event failed for bundle %s %s", day_str, hhmm)
+            return
+        for i in insts:
+            if i["google_task_id"] != existing_event_id:
+                db.set_instance_google_id(i["id"], existing_event_id)
+        return
+
+    day = date.fromisoformat(day_str)
+    start_iso, end_iso, tz_name = _event_window(day, hhmm)
+    try:
+        ev = google_api.create_event(
+            title=summary, start_iso=start_iso, end_iso=end_iso,
+            tz=tz_name, description=description,
+        )
+    except Exception:
+        log.exception("create_event failed for bundle %s %s", day_str, hhmm)
+        return
+    new_id = ev.get("id")
+    for i in insts:
+        db.set_instance_google_id(i["id"], new_id)
+    if all_done and new_id:
+        try:
+            google_api.patch_event_completed(new_id, True)
+        except Exception:
+            log.exception("Initial completion patch failed for %s", new_id)
 
 
 def generate_window(start: date, end: date, only_def_id: Optional[int] = None) -> int:
-    """Pre-create missing task_instances over [start, end] inclusive.
+    """Pre-create local instances over [start, end] and reconcile each touched bundle.
 
-    If `only_def_id` is given, restrict to that one task_def. Returns count.
+    With `only_def_id`, only that def contributes new rows — but every bundle
+    it lands in is re-rendered so the Calendar event picks up siblings that
+    were already created from earlier runs.
     """
     if not google_api.is_connected():
         log.info("Skip generate_window: Google nicht verbunden.")
         return 0
-    defs = [db.get_task_def(only_def_id)] if only_def_id is not None else db.list_task_defs(active_only=True)
-    defs = [d for d in defs if d is not None and d["active"]]
+
+    active = db.list_task_defs(active_only=True)
+    creators = [d for d in active if only_def_id is None or d["id"] == only_def_id]
+
     created = 0
+    touched: set[tuple[str, str]] = set()
     cursor = start
     while cursor <= end:
-        for d in defs:
-            created += _create_one(d, cursor)
+        day_str = cursor.isoformat()
+        for d in creators:
+            if not _due_today(d, cursor):
+                continue
+            for hhmm in _times_of(d):
+                if db.get_or_none_instance_for(d["id"], day_str, hhmm) is None:
+                    db.create_instance(d["id"], day_str, hhmm, None)
+                    created += 1
+                touched.add((day_str, hhmm))
         cursor += timedelta(days=1)
+
+    for day_str, hhmm in sorted(touched):
+        reconcile_bundle(day_str, hhmm)
+
     if created:
         log.info("generate_window created %d task instance(s).", created)
     return created
 
 
 def generate_today(today: Optional[date] = None) -> int:
-    """Pre-create today + LOOKAHEAD_DAYS for all active defs."""
     if today is None:
         today = date.today()
     return generate_window(today, today + timedelta(days=LOOKAHEAD_DAYS))
 
 
 def wipe_def_instances(def_id: int, from_date: Optional[date] = None) -> int:
-    """Remove instances of `def_id` from Google Tasks + local DB.
+    """Remove instances of `def_id` and reconcile (or delete) affected bundles.
 
-    If `from_date` is None, wipes ALL instances (history included).
-    Otherwise wipes instances with due_date >= from_date.
-    Returns count removed.
+    For each Calendar event a wiped row pointed at:
+      - if no other members survive → delete the event,
+      - else → re-render the event without the removed entries.
     """
     rows = db.list_instances_by_def(def_id, from_date.isoformat() if from_date else None)
     removed = 0
     connected = google_api.is_connected()
+    affected_event_ids: set[str] = set()
+
     for r in rows:
         gid = r["google_task_id"]
-        if gid and connected:
-            try:
-                google_api.delete_event(gid)
-            except Exception:
-                log.exception("Failed to delete Google event %s", gid)
+        if gid:
+            affected_event_ids.add(gid)
         db.delete_instance(r["id"])
         removed += 1
+
+    for gid in affected_event_ids:
+        siblings = db.list_instances_by_google_id(gid)
+        if not siblings:
+            if connected:
+                try:
+                    google_api.delete_event(gid)
+                except Exception:
+                    log.exception("Failed to delete Google event %s", gid)
+        elif connected:
+            s = siblings[0]
+            reconcile_bundle(s["due_date"], s["due_time"])
+
     if removed:
         log.info("wipe_def_instances removed %d instance(s) for def %s.", removed, def_id)
     return removed

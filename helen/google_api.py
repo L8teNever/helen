@@ -189,6 +189,18 @@ def patch_event_completed(event_id: str, completed: bool) -> dict:
     return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
 
 
+def update_event(event_id: str, summary: str, description: str, completed: bool) -> dict:
+    """Patch summary, description, and completion colour on an existing event."""
+    svc = calendar_service()
+    cal_id = ensure_helen_calendar()
+    body = {
+        "summary": summary,
+        "description": description,
+        "colorId": COMPLETED_COLOR_ID if completed else None,
+    }
+    return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
+
+
 def list_events(
     time_min_iso: Optional[str] = None, time_max_iso: Optional[str] = None,
 ) -> list[dict]:

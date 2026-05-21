@@ -1,8 +1,10 @@
-"""Bidirectional sync helpers between local SQLite state and Google Calendar.
+"""Bidirectional sync between local SQLite state and Google Calendar bundles.
 
-Completion is signalled on the Google side by the event's `colorId`:
-graphite (id "8") means "done". Local toggles update the colour; the polling
-job reconciles when the user changes the colour directly in Google Calendar.
+Each bundle = one Calendar event shared by every task_instance scheduled at
+the same (date, time). Toggling completion locally triggers a re-render of
+that bundle event. Reverse-sync (Calendar → local) is only safe for
+single-member bundles, because a colour change on a multi-member event is
+ambiguous about which sub-task changed.
 """
 from __future__ import annotations
 
@@ -17,17 +19,19 @@ log = logging.getLogger("helen.sync")
 
 
 async def toggle_instance(inst_id: int, completed: bool, loop: Optional[asyncio.AbstractEventLoop] = None) -> bool:
-    """Toggle a task instance both locally and on Google. Returns success."""
+    """Toggle a task instance locally and re-render its Calendar bundle."""
     inst = db.get_instance(inst_id)
     if inst is None:
         return False
     db.set_instance_completed(inst_id, completed)
-    event_id = inst["google_task_id"]
-    if event_id:
-        try:
-            await asyncio.to_thread(google_api.patch_event_completed, event_id, completed)
-        except Exception:
-            log.exception("Failed to patch Google event %s", event_id)
+
+    # Lazy import to avoid scheduler ↔ sync circular import.
+    from helen import scheduler
+    try:
+        await asyncio.to_thread(scheduler.reconcile_bundle, inst["due_date"], inst["due_time"])
+    except Exception:
+        log.exception("Reconcile after toggle failed for inst %s", inst_id)
+
     await sse.broadcast(
         "instance_changed",
         {"id": inst_id, "completed": completed, "source": "local"},
@@ -36,11 +40,7 @@ async def toggle_instance(inst_id: int, completed: bool, loop: Optional[asyncio.
 
 
 def poll_google_once(loop: asyncio.AbstractEventLoop) -> None:
-    """Pull current state from Google Calendar and reconcile completion locally.
-
-    Runs in the APScheduler thread. Broadcasts via the provided loop.
-    Only inspects events from the last ~2 days onward to keep payload small.
-    """
+    """Pull Calendar state and reconcile completion for single-member bundles only."""
     if not google_api.is_connected():
         return
     time_min = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
@@ -55,9 +55,10 @@ def poll_google_once(loop: asyncio.AbstractEventLoop) -> None:
         eid = ev.get("id")
         if not eid:
             continue
-        inst = db.get_instance_by_google_id(eid)
-        if inst is None:
-            continue
+        bundle = db.list_instances_by_google_id(eid)
+        if len(bundle) != 1:
+            continue  # Multi-member bundles: completion is owned by Helen.
+        inst = bundle[0]
         remote_completed = ev.get("colorId") == google_api.COMPLETED_COLOR_ID
         if bool(inst["completed"]) != remote_completed:
             db.set_instance_completed(inst["id"], remote_completed)

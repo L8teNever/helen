@@ -330,6 +330,26 @@ def get_instance_by_google_id(google_task_id: str) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
+def list_instances_by_google_id(google_task_id: str) -> list[sqlite3.Row]:
+    """All instances sharing a Calendar event id (bundle members)."""
+    return list(get_conn().execute(
+        "SELECT ti.*, td.name AS def_name, td.notes AS def_notes "
+        "FROM task_instances ti JOIN task_defs td ON td.id=ti.task_def_id "
+        "WHERE ti.google_task_id=? ORDER BY td.name, ti.id",
+        (google_task_id,),
+    ))
+
+
+def list_instances_for_bundle(due_date: str, due_time: str) -> list[sqlite3.Row]:
+    """All instances scheduled for the same (date, time) — joined with task_def info."""
+    return list(get_conn().execute(
+        "SELECT ti.*, td.name AS def_name, td.notes AS def_notes, td.active AS def_active "
+        "FROM task_instances ti JOIN task_defs td ON td.id=ti.task_def_id "
+        "WHERE ti.due_date=? AND ti.due_time=? ORDER BY td.name, ti.id",
+        (due_date, due_time),
+    ))
+
+
 def get_or_none_instance_for(def_id: int, due_date: str, due_time: Optional[str] = None) -> Optional[sqlite3.Row]:
     if due_time is None:
         return get_conn().execute(
