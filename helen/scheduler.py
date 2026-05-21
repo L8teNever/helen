@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from helen import db, google_api, sync
+from helen import db, google_api, sync, untis_sync
 
 log = logging.getLogger("helen.scheduler")
 
@@ -29,6 +29,7 @@ WEEKDAY_BITS = [1, 2, 4, 8, 16, 32, 64]
 LOOKAHEAD_DAYS = int(os.environ.get("HELEN_LOOKAHEAD_DAYS", "14"))
 EVENT_DURATION_MIN = int(os.environ.get("HELEN_EVENT_DURATION_MIN", "30"))
 TRIGGER_BASE = os.environ.get("HELEN_TRIGGER_BASE_URL", "https://helen.l8tenever.com").rstrip("/")
+UNTIS_SYNC_INTERVAL_MIN = int(os.environ.get("HELEN_UNTIS_SYNC_INTERVAL_MIN", "30"))
 
 
 def _due_today(task_def, today: date) -> bool:
@@ -261,6 +262,17 @@ def _midnight_job():
         log.exception("generate_today failed.")
 
 
+def _untis_job():
+    if not untis_sync.is_configured():
+        return
+    if not google_api.is_connected():
+        return
+    try:
+        untis_sync.sync_window()
+    except Exception:
+        log.exception("untis sync_window failed.")
+
+
 def start(loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
     global _scheduler, _loop
     _loop = loop
@@ -268,6 +280,11 @@ def start(loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
     sched.add_job(_midnight_job, CronTrigger(hour=0, minute=5), id="midnight_generate", replace_existing=True)
     sched.add_job(_poll_job, IntervalTrigger(seconds=30), id="poll_google", replace_existing=True, max_instances=1)
     sched.add_job(_midnight_job, "date", run_date=datetime.utcnow() + timedelta(seconds=5), id="boot_generate")
+    sched.add_job(
+        _untis_job, IntervalTrigger(minutes=UNTIS_SYNC_INTERVAL_MIN),
+        id="untis_sync", replace_existing=True, max_instances=1,
+    )
+    sched.add_job(_untis_job, "date", run_date=datetime.utcnow() + timedelta(seconds=15), id="boot_untis_sync")
     sched.start()
     _scheduler = sched
     log.info("Scheduler started.")

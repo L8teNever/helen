@@ -34,6 +34,7 @@ log = logging.getLogger("helen.google")
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 HELEN_CAL_TITLE = "Helen"
+HELEN_UNTIS_CAL_TITLE = "Helen-Untis"
 COMPLETED_COLOR_ID = "8"  # graphite — visually "done"
 
 
@@ -124,9 +125,9 @@ def calendar_service():
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
-def ensure_helen_calendar() -> str:
-    """Find or create the 'Helen' calendar. Returns its id."""
-    existing = db.get_config("helen_calendar_id")
+def _ensure_calendar(title: str, config_key: str) -> str:
+    """Find or create a calendar by title; cache its id under `config_key`."""
+    existing = db.get_config(config_key)
     svc = calendar_service()
     if existing:
         try:
@@ -135,14 +136,14 @@ def ensure_helen_calendar() -> str:
         except HttpError as e:
             if e.resp.status != 404:
                 raise
-            db.set_config("helen_calendar_id", None)
+            db.set_config(config_key, None)
 
     page_token = None
     while True:
         resp = svc.calendarList().list(pageToken=page_token).execute()
         for item in resp.get("items", []):
-            if item.get("summary") == HELEN_CAL_TITLE:
-                db.set_config("helen_calendar_id", item["id"])
+            if item.get("summary") == title:
+                db.set_config(config_key, item["id"])
                 return item["id"]
         page_token = resp.get("nextPageToken")
         if not page_token:
@@ -150,30 +151,43 @@ def ensure_helen_calendar() -> str:
 
     tz = os.environ.get("HELEN_TZ", "Europe/Berlin")
     created = svc.calendars().insert(
-        body={"summary": HELEN_CAL_TITLE, "timeZone": tz}
+        body={"summary": title, "timeZone": tz}
     ).execute()
-    db.set_config("helen_calendar_id", created["id"])
-    log.info("Created Helen calendar: %s", created["id"])
+    db.set_config(config_key, created["id"])
+    log.info("Created calendar %r: %s", title, created["id"])
     return created["id"]
+
+
+def ensure_helen_calendar() -> str:
+    """Find or create the 'Helen' calendar for tasks. Returns its id."""
+    return _ensure_calendar(HELEN_CAL_TITLE, "helen_calendar_id")
+
+
+def ensure_helen_untis_calendar() -> str:
+    """Find or create the 'Helen-Untis' calendar for school timetable. Returns its id."""
+    return _ensure_calendar(HELEN_UNTIS_CAL_TITLE, "helen_untis_calendar_id")
 
 
 def create_event(
     title: str, start_iso: str, end_iso: str, tz: str, description: str = "",
+    calendar_id: Optional[str] = None, color_id: Optional[str] = None,
 ) -> dict:
     svc = calendar_service()
-    cal_id = ensure_helen_calendar()
-    body = {
+    cal_id = calendar_id or ensure_helen_calendar()
+    body: dict = {
         "summary": title,
         "description": description,
         "start": {"dateTime": start_iso, "timeZone": tz},
         "end": {"dateTime": end_iso, "timeZone": tz},
     }
+    if color_id:
+        body["colorId"] = color_id
     return svc.events().insert(calendarId=cal_id, body=body).execute()
 
 
-def delete_event(event_id: str) -> None:
+def delete_event(event_id: str, calendar_id: Optional[str] = None) -> None:
     svc = calendar_service()
-    cal_id = ensure_helen_calendar()
+    cal_id = calendar_id or ensure_helen_calendar()
     try:
         svc.events().delete(calendarId=cal_id, eventId=event_id).execute()
     except HttpError as e:
@@ -181,18 +195,19 @@ def delete_event(event_id: str) -> None:
             raise
 
 
-def patch_event_completed(event_id: str, completed: bool) -> dict:
+def patch_event_completed(event_id: str, completed: bool, calendar_id: Optional[str] = None) -> dict:
     """Mark/unmark an event done by toggling its colour (graphite = done)."""
     svc = calendar_service()
-    cal_id = ensure_helen_calendar()
+    cal_id = calendar_id or ensure_helen_calendar()
     body = {"colorId": COMPLETED_COLOR_ID if completed else None}
     return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
 
 
-def update_event(event_id: str, summary: str, description: str, completed: bool) -> dict:
+def update_event(event_id: str, summary: str, description: str, completed: bool,
+                 calendar_id: Optional[str] = None) -> dict:
     """Patch summary, description, and completion colour on an existing event."""
     svc = calendar_service()
-    cal_id = ensure_helen_calendar()
+    cal_id = calendar_id or ensure_helen_calendar()
     body = {
         "summary": summary,
         "description": description,
@@ -201,11 +216,29 @@ def update_event(event_id: str, summary: str, description: str, completed: bool)
     return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
 
 
+def patch_event_fields(
+    event_id: str, summary: str, description: str, start_iso: str, end_iso: str,
+    tz: str, color_id: Optional[str], calendar_id: Optional[str] = None,
+) -> dict:
+    """Patch summary/description/start/end/colorId — used by the Untis sync path."""
+    svc = calendar_service()
+    cal_id = calendar_id or ensure_helen_calendar()
+    body: dict = {
+        "summary": summary,
+        "description": description,
+        "start": {"dateTime": start_iso, "timeZone": tz},
+        "end": {"dateTime": end_iso, "timeZone": tz},
+        "colorId": color_id,  # null clears the override colour
+    }
+    return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
+
+
 def list_events(
     time_min_iso: Optional[str] = None, time_max_iso: Optional[str] = None,
+    calendar_id: Optional[str] = None,
 ) -> list[dict]:
     svc = calendar_service()
-    cal_id = ensure_helen_calendar()
+    cal_id = calendar_id or ensure_helen_calendar()
     items: list[dict] = []
     page_token = None
     while True:
