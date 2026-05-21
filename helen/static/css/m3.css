@@ -576,35 +576,203 @@ code { background: var(--md-surface-container-high); padding: 1px 6px; border-ra
   border-radius: var(--md-shape-md);
 }
 
-/* Modal dialog */
-.m3-modal {
+/* === Preview sheet (M3 Expressive — Android 16) ===
+ * Desktop : centered dialog with rounded corners, hero image header.
+ * Mobile  : bottom sheet with drag handle, full-width, top-rounded.
+ */
+.m3-sheet {
   background: transparent;
   border: none;
   padding: 0;
-  max-width: min(560px, 92vw);
-  max-height: 90vh;
-  border-radius: var(--md-shape-xl);
   color: inherit;
+  max-width: min(540px, calc(100vw - 32px));
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  border-radius: var(--md-shape-xl);
+  overflow: visible;
 }
-.m3-modal::backdrop {
-  background: color-mix(in srgb, var(--md-on-background) 55%, transparent);
-  backdrop-filter: blur(6px);
-  animation: fade-in .2s var(--md-spring-soft);
+.m3-sheet::backdrop {
+  background: color-mix(in srgb, var(--md-on-background) 58%, transparent);
+  backdrop-filter: blur(10px) saturate(120%);
+  animation: fade-in .22s var(--md-spring-soft);
 }
-.m3-modal[open] { animation: bounce-in .4s cubic-bezier(.2,1.6,.25,1); }
-.m3-modal-card {
+.m3-sheet-card {
+  position: relative;
   background: var(--md-surface-container);
   border-radius: var(--md-shape-xl);
-  padding: 24px;
-  display: flex; flex-direction: column; gap: 16px;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--md-elev-3);
-  border: 1px solid var(--md-outline-variant);
-  max-height: 90vh;
+  max-height: calc(100vh - 32px);
+}
+.m3-sheet-handle {
+  display: none;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--md-on-surface-variant) 40%, transparent);
+  margin: 8px auto 0;
+  flex-shrink: 0;
+}
+.m3-sheet-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--md-surface-container-highest) 88%, transparent);
+  color: var(--md-on-surface);
+  cursor: pointer;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  transition: background-color .2s, transform .25s var(--md-spring-snappy);
+}
+.m3-sheet-close:hover { background: var(--md-surface-container-highest); }
+.m3-sheet-close:active { transform: scale(.92); }
+.m3-sheet-close .material-symbols-outlined { font-size: 24px; }
+
+.m3-sheet-hero {
+  margin: 0;
+  background: var(--md-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  max-height: 42vh;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.m3-sheet-hero img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 42vh;
+  object-fit: cover;
+}
+
+.m3-sheet-body {
+  padding: 24px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   overflow: auto;
 }
-.m3-modal-close {
-  position: absolute; top: 12px; right: 12px;
-  width: 40px; height: 40px;
+
+.m3-sheet-title {
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  margin: 0;
+  padding-right: 56px;
+  color: var(--md-on-surface);
 }
-.m3-modal-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.m3-sheet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.m3-sheet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+}
+.m3-sheet-chip .material-symbols-outlined { font-size: 18px; }
+.m3-sheet-chip-time {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+.m3-sheet-chip.m3-chip-ok {
+  background: color-mix(in srgb, var(--md-success) 22%, var(--md-surface-container));
+  color: var(--md-success);
+}
+
+.m3-sheet-section {
+  background: var(--md-surface-container-low);
+  border-radius: var(--md-shape-md);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m3-sheet-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--md-on-surface-variant);
+  margin: 0;
+}
+.m3-sheet-notes {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--md-on-surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Hero-less variant: pull X button into a colored badge over the surface */
+.m3-sheet-card:not(:has(.m3-sheet-hero:not([hidden]))) .m3-sheet-close {
+  background: var(--md-surface-container-high);
+  box-shadow: none;
+}
+
+/* --- Mobile bottom sheet --- */
+@media (max-width: 640px) {
+  .m3-sheet {
+    margin: auto auto 0 auto;
+    max-width: 100vw;
+    width: 100vw;
+    max-height: 92vh;
+    border-radius: var(--md-shape-xl) var(--md-shape-xl) 0 0;
+  }
+  .m3-sheet-card {
+    border-radius: var(--md-shape-xl) var(--md-shape-xl) 0 0;
+    max-height: 92vh;
+  }
+  .m3-sheet-handle { display: block; }
+  .m3-sheet-body {
+    padding: 14px 20px max(28px, env(safe-area-inset-bottom));
+    gap: 16px;
+  }
+  .m3-sheet-title { font-size: 22px; padding-right: 48px; }
+  .m3-sheet-hero { min-height: 200px; max-height: 36vh; }
+  .m3-sheet-close { top: 10px; right: 12px; }
+}
+
+/* --- Springy entry --- */
+@media (prefers-reduced-motion: no-preference) {
+  .m3-sheet[open] {
+    animation: m3-sheet-pop .42s cubic-bezier(.2,1.5,.3,1);
+  }
+  @keyframes m3-sheet-pop {
+    0%   { opacity: 0; transform: translateY(18px) scale(.96); }
+    55%  { opacity: 1; transform: translateY(-3px) scale(1.01); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @media (max-width: 640px) {
+    .m3-sheet[open] {
+      animation: m3-sheet-slide .38s cubic-bezier(.2,1.2,.3,1);
+    }
+    @keyframes m3-sheet-slide {
+      0%   { opacity: 0; transform: translateY(100%); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+  }
+}

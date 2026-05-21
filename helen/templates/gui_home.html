@@ -59,22 +59,33 @@
   {% endif %}
 </section>
 
-<dialog class="m3-modal" data-preview-modal>
-  <div class="m3-modal-card">
-    <button type="button" class="m3-icon-btn m3-modal-close" data-preview-close aria-label="Schließen">
-      <span class="material-symbols-outlined">close</span>
-    </button>
-    <h2 class="m3-title" data-preview-name>—</h2>
-    <div class="m3-modal-meta">
-      <span class="m3-chip"><span class="material-symbols-outlined">schedule</span><span data-preview-time>—</span></span>
-      <span class="m3-chip" data-preview-status>—</span>
-    </div>
-    <figure class="m3-preview-figure" data-preview-figure hidden>
+<dialog class="m3-sheet" data-preview-modal aria-labelledby="preview-name">
+  <div class="m3-sheet-card">
+    <div class="m3-sheet-handle" aria-hidden="true"></div>
+
+    <figure class="m3-sheet-hero" data-preview-figure hidden>
       <img data-preview-image alt="">
     </figure>
-    <div data-preview-notes-wrap hidden>
-      <h3 class="m3-subtitle">Notiz</h3>
-      <p class="m3-body-text" style="white-space: pre-wrap" data-preview-notes>—</p>
+
+    <button type="button" class="m3-sheet-close" data-preview-close aria-label="Schließen">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+
+    <div class="m3-sheet-body">
+      <h2 id="preview-name" class="m3-sheet-title" data-preview-name>—</h2>
+
+      <div class="m3-sheet-chips">
+        <span class="m3-sheet-chip m3-sheet-chip-time">
+          <span class="material-symbols-outlined">schedule</span>
+          <span data-preview-time>—</span>
+        </span>
+        <span class="m3-sheet-chip" data-preview-status>—</span>
+      </div>
+
+      <section class="m3-sheet-section" data-preview-notes-wrap hidden>
+        <h3 class="m3-sheet-section-label">Notiz</h3>
+        <p class="m3-sheet-notes" data-preview-notes>—</p>
+      </section>
     </div>
   </div>
 </dialog>
