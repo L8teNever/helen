@@ -157,6 +157,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
             PRAGMA foreign_keys=ON;
         """)
 
+    # One-shot migration: Google Tasks → Google Calendar. Drop today+future
+    # local instances so the scheduler recreates them as Calendar events.
+    # Past instances are kept as history. Old Google task IDs are abandoned —
+    # the user deletes the legacy "Helen" task list in Google Tasks manually.
+    marker = conn.execute("SELECT value FROM config WHERE key='helen_migration_calendar_done'").fetchone()
+    if not marker:
+        today = datetime.utcnow().date().isoformat()
+        conn.execute("DELETE FROM task_instances WHERE due_date >= ?", (today,))
+        conn.execute(
+            "INSERT INTO config(key,value) VALUES('helen_migration_calendar_done','1') "
+            "ON CONFLICT(key) DO UPDATE SET value='1'"
+        )
+        # Drop the legacy tasklist id so the new Calendar flow starts clean.
+        conn.execute("DELETE FROM config WHERE key='helen_tasklist_id'")
+
 
 # ---------- config ----------
 
