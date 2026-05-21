@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS trigger_tasks (
     task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
     PRIMARY KEY (trigger_id, task_def_id)
 );
+
+CREATE TABLE IF NOT EXISTS trigger_companions (
+    trigger_id INTEGER NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+    task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
+    PRIMARY KEY (trigger_id, task_def_id)
+);
 """
 
 
@@ -447,5 +453,28 @@ def list_trigger_task_defs(trigger_id: int) -> list[sqlite3.Row]:
     return list(get_conn().execute(
         "SELECT td.* FROM task_defs td JOIN trigger_tasks tt ON tt.task_def_id=td.id "
         "WHERE tt.trigger_id=? AND td.active=1 ORDER BY td.time_of_day",
+        (trigger_id,),
+    ))
+
+
+def set_trigger_companions(trigger_id: int, task_def_ids: list[int]) -> None:
+    with _lock, tx() as conn:
+        conn.execute("DELETE FROM trigger_companions WHERE trigger_id=?", (trigger_id,))
+        conn.executemany(
+            "INSERT INTO trigger_companions(trigger_id,task_def_id) VALUES(?,?)",
+            [(trigger_id, t) for t in task_def_ids],
+        )
+
+
+def list_trigger_companion_def_ids(trigger_id: int) -> list[int]:
+    return [r["task_def_id"] for r in get_conn().execute(
+        "SELECT task_def_id FROM trigger_companions WHERE trigger_id=?", (trigger_id,)
+    )]
+
+
+def list_trigger_companion_defs(trigger_id: int) -> list[sqlite3.Row]:
+    return list(get_conn().execute(
+        "SELECT td.* FROM task_defs td JOIN trigger_companions tc ON tc.task_def_id=td.id "
+        "WHERE tc.trigger_id=? AND td.active=1 ORDER BY td.time_of_day",
         (trigger_id,),
     ))

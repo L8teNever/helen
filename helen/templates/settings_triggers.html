@@ -76,6 +76,23 @@
             <p class="m3-empty">Lege zuerst Aufgaben an.</p>
           {% endif %}
         </fieldset>
+        <fieldset class="m3-fieldset">
+          <legend>Begleitaufgaben (per „Alle eingenommen" mit-abhaken)</legend>
+          <p class="m3-body-text">Wird der Trigger gescannt, hakt er nur die passende Aufgabe ab. Auf der Bestätigungsseite erscheint dann ein Button „Alle eingenommen", der diese Begleitaufgaben für heute mit-abhakt.</p>
+          {% if all_defs %}
+            <div class="m3-checklist">
+            {% for d in all_defs %}
+              <label class="m3-pill">
+                <input type="checkbox" name="companion_def_ids" value="{{ d['id'] }}"
+                       {% if d['id'] in row['companion_ids'] %}checked{% endif %}>
+                <span>{{ d['name'] }} · {{ d['time_of_day'] }}</span>
+              </label>
+            {% endfor %}
+            </div>
+          {% else %}
+            <p class="m3-empty">Lege zuerst Aufgaben an.</p>
+          {% endif %}
+        </fieldset>
         <div class="m3-actions" data-dirty-actions hidden>
           <button type="submit" class="m3-btn m3-btn-filled">Zuordnung speichern</button>
         </div>

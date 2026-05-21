@@ -178,6 +178,24 @@ def build_app() -> FastAPI:
 
     # ---- Trigger links ----
 
+    def _today_open_companion_instances(trigger_id: int, exclude_inst_id: int | None = None) -> list[dict]:
+        today = date.today().isoformat()
+        ids = db.list_trigger_companion_def_ids(trigger_id)
+        out: list[dict] = []
+        for did in ids:
+            for inst in db.list_instances_for_def_on_date(did, today):
+                if inst["completed"]:
+                    continue
+                if exclude_inst_id is not None and inst["id"] == exclude_inst_id:
+                    continue
+                d = db.get_task_def(inst["task_def_id"])
+                out.append({
+                    "id": inst["id"],
+                    "name": d["name"] if d else "?",
+                    "due_time": inst["due_time"],
+                })
+        return out
+
     @app.get("/t/{slug}", response_class=HTMLResponse)
     async def trigger(slug: str, request: Request):
         result = trigger_logic.resolve(slug, datetime.now())
@@ -186,14 +204,45 @@ def build_app() -> FastAPI:
             await sync.toggle_instance(result.instance_id, True)
             result.status = "completed_now"
 
+        companions: list[dict] = []
+        if result.status in ("completed_now", "already_completed"):
+            trig = db.get_trigger_by_slug(slug)
+            if trig is not None:
+                companions = _today_open_companion_instances(trig["id"], result.instance_id)
+
         return templates.TemplateResponse(
             "trigger_animation.html",
             {
                 "request": request,
                 "result": result,
+                "companions": companions,
+                "slug": slug,
                 "gui_url": "/",
             },
             status_code=200 if result.status != "unknown_trigger" else 404,
+        )
+
+    @app.post("/t/{slug}/companions", response_class=HTMLResponse)
+    async def trigger_companions(slug: str, request: Request):
+        trig = db.get_trigger_by_slug(slug)
+        if trig is None:
+            raise HTTPException(404)
+        insts = _today_open_companion_instances(trig["id"])
+        for inst in insts:
+            await sync.toggle_instance(inst["id"], True)
+        return templates.TemplateResponse(
+            "trigger_animation.html",
+            {
+                "request": request,
+                "result": trigger_logic.TriggerResult(
+                    status="companions_done",
+                    trigger_name=trig["name"],
+                ),
+                "companions_count": len(insts),
+                "companions": [],
+                "slug": slug,
+                "gui_url": "/",
+            },
         )
 
     return app

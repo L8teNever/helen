@@ -290,9 +290,11 @@ def build_app() -> FastAPI:
         rows = []
         for t in db.list_triggers():
             assigned_ids = set(db.list_trigger_task_def_ids(t["id"]))
+            companion_ids = set(db.list_trigger_companion_def_ids(t["id"]))
             rows.append({
                 "trigger": t,
                 "assigned_ids": assigned_ids,
+                "companion_ids": companion_ids,
                 "url": f"{trigger_base}/t/{t['slug']}",
             })
         return templates.TemplateResponse(
@@ -322,9 +324,11 @@ def build_app() -> FastAPI:
     async def assign_trigger(request: Request, trigger_id: int):
         form = await request.form()
         task_def_ids = [int(v) for k, v in form.multi_items() if k == "task_def_ids"]
+        companion_ids = [int(v) for k, v in form.multi_items() if k == "companion_def_ids"]
         if db.get_trigger(trigger_id) is None:
             raise HTTPException(404)
         db.set_trigger_tasks(trigger_id, task_def_ids)
+        db.set_trigger_companions(trigger_id, companion_ids)
         request.session["flash"] = "Zuordnung gespeichert."
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
 

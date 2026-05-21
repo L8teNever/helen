@@ -2,6 +2,7 @@
 {% block title %}
   {% if result.status == 'completed_now' %}Erledigt!
   {% elif result.status == 'already_completed' %}Schon erledigt
+  {% elif result.status == 'companions_done' %}Alle eingenommen
   {% elif result.status == 'nothing_today' %}Nichts zu tun
   {% else %}Unbekannter Trigger{% endif %}
 {% endblock %}
@@ -35,6 +36,18 @@
       <p class="m3-headline-soft">{{ result.task_name }}</p>
       <p class="m3-meta">{{ result.due_time }} · Trigger {{ result.trigger_name }}</p>
     </div>
+  {% elif result.status == 'companions_done' %}
+    <div class="m3-trigger-card m3-bounce">
+      <div class="m3-trigger-icon m3-check">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="m3-check-ring" cx="32" cy="32" r="28"></circle>
+          <path class="m3-check-path" d="M18 33 L28 43 L46 23" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <h1 class="m3-display">Alle eingenommen</h1>
+      <p class="m3-headline-soft">{{ companions_count or 0 }} Begleitaufgabe{% if (companions_count or 0) != 1 %}n{% endif %} abgehakt</p>
+      <p class="m3-meta">Trigger {{ result.trigger_name }}</p>
+    </div>
   {% elif result.status == 'nothing_today' %}
     <div class="m3-trigger-card m3-fade">
       <div class="m3-trigger-icon m3-info">
@@ -52,6 +65,16 @@
       <h1 class="m3-display">Unbekannter Trigger</h1>
       <p class="m3-meta">Dieser NFC-Link ist nicht (mehr) registriert.</p>
     </div>
+  {% endif %}
+
+  {% if companions and companions|length > 0 %}
+    <form method="post" action="/t/{{ slug }}/companions" class="m3-trigger-companions">
+      <p class="m3-meta">Begleitaufgaben offen: {{ companions|map(attribute='name')|join(', ') }}</p>
+      <button type="submit" class="m3-btn m3-btn-filled m3-btn-prominent">
+        <span class="material-symbols-outlined">done_all</span>
+        Alle eingenommen ({{ companions|length }})
+      </button>
+    </form>
   {% endif %}
 
   <a href="{{ gui_url }}" class="m3-btn m3-btn-outlined m3-trigger-cta">
