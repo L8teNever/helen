@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS trigger_tasks (
 CREATE TABLE IF NOT EXISTS trigger_companions (
     trigger_id INTEGER NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
     task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
-    PRIMARY KEY (trigger_id, task_def_id)
+    time_of_day TEXT NOT NULL,
+    PRIMARY KEY (trigger_id, task_def_id, time_of_day)
 );
 """
 
@@ -162,6 +163,35 @@ def _migrate(conn: sqlite3.Connection) -> None:
             COMMIT;
             PRAGMA foreign_keys=ON;
         """)
+
+    # trigger_companions: add `time_of_day` column. Old shape stored only
+    # (trigger_id, task_def_id); the new shape pins each entry to a specific
+    # time-of-day. Expand each legacy row to one per configured time of the
+    # referenced task_def.
+    tc_cols = {r[1] for r in conn.execute("PRAGMA table_info(trigger_companions)")}
+    if tc_cols and "time_of_day" not in tc_cols:
+        old_rows = list(conn.execute("SELECT trigger_id, task_def_id FROM trigger_companions"))
+        conn.executescript("""
+            PRAGMA foreign_keys=OFF;
+            DROP TABLE trigger_companions;
+            CREATE TABLE trigger_companions (
+                trigger_id INTEGER NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+                task_def_id INTEGER NOT NULL REFERENCES task_defs(id) ON DELETE CASCADE,
+                time_of_day TEXT NOT NULL,
+                PRIMARY KEY (trigger_id, task_def_id, time_of_day)
+            );
+            PRAGMA foreign_keys=ON;
+        """)
+        for trig_id, def_id in old_rows:
+            td = conn.execute("SELECT times, time_of_day FROM task_defs WHERE id=?", (def_id,)).fetchone()
+            if td is None:
+                continue
+            times = [t.strip() for t in (td[0] or "").split(",") if t.strip()] or [td[1]]
+            for t in times:
+                conn.execute(
+                    "INSERT OR IGNORE INTO trigger_companions(trigger_id, task_def_id, time_of_day) VALUES (?,?,?)",
+                    (trig_id, def_id, t),
+                )
 
     # One-shot migration: Google Tasks → Google Calendar. Drop today+future
     # local instances so the scheduler recreates them as Calendar events.
@@ -457,24 +487,22 @@ def list_trigger_task_defs(trigger_id: int) -> list[sqlite3.Row]:
     ))
 
 
-def set_trigger_companions(trigger_id: int, task_def_ids: list[int]) -> None:
+def set_trigger_companions(trigger_id: int, entries: list[tuple[int, str]]) -> None:
+    """Replace this trigger's companion entries. Each entry is (task_def_id, HH:MM)."""
     with _lock, tx() as conn:
         conn.execute("DELETE FROM trigger_companions WHERE trigger_id=?", (trigger_id,))
         conn.executemany(
-            "INSERT INTO trigger_companions(trigger_id,task_def_id) VALUES(?,?)",
-            [(trigger_id, t) for t in task_def_ids],
+            "INSERT OR IGNORE INTO trigger_companions(trigger_id,task_def_id,time_of_day) VALUES(?,?,?)",
+            [(trigger_id, did, hhmm) for did, hhmm in entries],
         )
 
 
-def list_trigger_companion_def_ids(trigger_id: int) -> list[int]:
-    return [r["task_def_id"] for r in get_conn().execute(
-        "SELECT task_def_id FROM trigger_companions WHERE trigger_id=?", (trigger_id,)
-    )]
-
-
-def list_trigger_companion_defs(trigger_id: int) -> list[sqlite3.Row]:
-    return list(get_conn().execute(
-        "SELECT td.* FROM task_defs td JOIN trigger_companions tc ON tc.task_def_id=td.id "
-        "WHERE tc.trigger_id=? AND td.active=1 ORDER BY td.time_of_day",
-        (trigger_id,),
-    ))
+def list_trigger_companion_entries(trigger_id: int) -> list[tuple[int, str]]:
+    """Return list of (task_def_id, time_of_day) configured as companions."""
+    return [
+        (r["task_def_id"], r["time_of_day"])
+        for r in get_conn().execute(
+            "SELECT task_def_id, time_of_day FROM trigger_companions WHERE trigger_id=?",
+            (trigger_id,),
+        )
+    ]

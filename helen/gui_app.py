@@ -180,20 +180,19 @@ def build_app() -> FastAPI:
 
     def _today_open_companion_instances(trigger_id: int, exclude_inst_id: int | None = None) -> list[dict]:
         today = date.today().isoformat()
-        ids = db.list_trigger_companion_def_ids(trigger_id)
         out: list[dict] = []
-        for did in ids:
-            for inst in db.list_instances_for_def_on_date(did, today):
-                if inst["completed"]:
-                    continue
-                if exclude_inst_id is not None and inst["id"] == exclude_inst_id:
-                    continue
-                d = db.get_task_def(inst["task_def_id"])
-                out.append({
-                    "id": inst["id"],
-                    "name": d["name"] if d else "?",
-                    "due_time": inst["due_time"],
-                })
+        for did, hhmm in db.list_trigger_companion_entries(trigger_id):
+            inst = db.get_or_none_instance_for(did, today, hhmm)
+            if inst is None or inst["completed"]:
+                continue
+            if exclude_inst_id is not None and inst["id"] == exclude_inst_id:
+                continue
+            d = db.get_task_def(did)
+            out.append({
+                "id": inst["id"],
+                "name": d["name"] if d else "?",
+                "due_time": hhmm,
+            })
         return out
 
     @app.get("/t/{slug}", response_class=HTMLResponse)

@@ -69,7 +69,9 @@
 
   {% if companions and companions|length > 0 %}
     <form method="post" action="/t/{{ slug }}/companions" class="m3-trigger-companions">
-      <p class="m3-meta">Begleitaufgaben offen: {{ companions|map(attribute='name')|join(', ') }}</p>
+      <p class="m3-meta">Begleitaufgaben offen:
+        {% for c in companions %}{{ c.name }} ({{ c.due_time }}){% if not loop.last %}, {% endif %}{% endfor %}
+      </p>
       <button type="submit" class="m3-btn m3-btn-filled m3-btn-prominent">
         <span class="material-symbols-outlined">done_all</span>
         Alle eingenommen ({{ companions|length }})
