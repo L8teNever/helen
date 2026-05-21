@@ -6,6 +6,7 @@ import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -35,14 +36,18 @@ def _due_today(task_def, today: date) -> bool:
 
 
 def _due_iso_z(today: date, hhmm: str) -> str:
-    """Build an RFC-3339 timestamp for `today HH:MM` in the container's local TZ,
-    converted to UTC. Container runs with TZ=Europe/Berlin (compose.yml), so
-    08:00 local → 06:00Z in summer (CEST) / 07:00Z in winter (CET).
+    """Build an RFC-3339 timestamp for `today HH:MM` with explicit offset.
+
+    Google Tasks v1 historically discarded the time portion of `due` (all-day
+    only). Newer Tasks clients preserve the time when the timestamp is
+    timezone-aware with an explicit offset (e.g. `+02:00`) rather than the
+    `Z`-notation we previously sent. TZ defaults to Europe/Berlin and is
+    overridable via HELEN_TZ.
     """
+    tz = ZoneInfo(os.environ.get("HELEN_TZ", "Europe/Berlin"))
     h, m = hhmm.split(":")
-    local_dt = datetime(today.year, today.month, today.day, int(h), int(m))
-    utc_dt = local_dt.astimezone(timezone.utc)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    local_dt = datetime(today.year, today.month, today.day, int(h), int(m), tzinfo=tz)
+    return local_dt.isoformat(timespec="seconds")
 
 
 def _build_notes(d) -> str:
