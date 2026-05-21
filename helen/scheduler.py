@@ -70,12 +70,16 @@ def _truncate_names(names: list[str], limit: int = 60) -> str:
     return ", ".join(out)
 
 
+SEP = "————————————————————"
+
+
 def _render_bundle(insts: list) -> tuple[str, str, bool]:
     """Build (summary, description, all_done) from a list of bundle instances.
 
     Each row must include `def_name`, `def_notes`, `task_def_id`, `completed`.
     Single-member bundles render as a plain titled event; multi-member bundles
-    show a `{done}/{total} — names` summary and a checklist description.
+    show a `{done}/{total} — names` summary and a vertically spaced checklist
+    description with one item per block (name, link, optional note).
     """
     total = len(insts)
     done = sum(1 for i in insts if i["completed"])
@@ -87,21 +91,22 @@ def _render_bundle(insts: list) -> tuple[str, str, bool]:
         parts: list[str] = []
         if i["def_notes"]:
             parts.append(i["def_notes"])
-        parts.append(f"{TRIGGER_BASE}/preview/{i['task_def_id']}")
+        parts.append(f"Details: {TRIGGER_BASE}/preview/{i['task_def_id']}")
         return summary, "\n\n".join(parts), all_done
 
     names = [i["def_name"] for i in insts]
     summary = f"{done}/{total} — {_truncate_names(names)}"
 
-    lines: list[str] = []
+    blocks: list[str] = [f"Status: {done} von {total} erledigt", SEP]
     for i in insts:
         marker = "[x]" if i["completed"] else "[ ]"
-        link = f"{TRIGGER_BASE}/preview/{i['task_def_id']}"
-        lines.append(f"{marker} {i['def_name']} — {link}")
+        block_lines = [f"{marker} {i['def_name']}"]
         if i["def_notes"]:
             for nl in i["def_notes"].splitlines():
-                lines.append(f"    {nl}")
-    return summary, "\n".join(lines), all_done
+                block_lines.append(f"    {nl}")
+        block_lines.append(f"    {TRIGGER_BASE}/preview/{i['task_def_id']}")
+        blocks.append("\n".join(block_lines))
+    return summary, "\n\n".join(blocks), all_done
 
 
 def reconcile_bundle(day_str: str, hhmm: str) -> None:
