@@ -178,11 +178,24 @@ def build_app() -> FastAPI:
 
     # ---- Trigger links ----
 
-    def _today_open_companion_instances(trigger_id: int, exclude_inst_id: int | None = None) -> list[dict]:
+    def _today_open_companion_instances(
+        trigger_id: int,
+        anchor_time: str | None,
+        exclude_inst_id: int | None = None,
+    ) -> list[dict]:
+        """Companion instances open today AT THE ANCHOR TIME.
+
+        Filter logic: a companion task_def only contributes if it has a today
+        instance scheduled at exactly `anchor_time`. Companions configured for
+        other times are silently skipped so morning-Tabletten don't get hooked
+        when the evening trigger fires.
+        """
+        if not anchor_time:
+            return []
         today = date.today().isoformat()
         out: list[dict] = []
-        for did, hhmm in db.list_trigger_companion_entries(trigger_id):
-            inst = db.get_or_none_instance_for(did, today, hhmm)
+        for did in db.list_trigger_companion_def_ids(trigger_id):
+            inst = db.get_or_none_instance_for(did, today, anchor_time)
             if inst is None or inst["completed"]:
                 continue
             if exclude_inst_id is not None and inst["id"] == exclude_inst_id:
@@ -191,7 +204,7 @@ def build_app() -> FastAPI:
             out.append({
                 "id": inst["id"],
                 "name": d["name"] if d else "?",
-                "due_time": hhmm,
+                "due_time": anchor_time,
             })
         return out
 
@@ -204,10 +217,13 @@ def build_app() -> FastAPI:
             result.status = "completed_now"
 
         companions: list[dict] = []
+        anchor_time = result.due_time
         if result.status in ("completed_now", "already_completed"):
             trig = db.get_trigger_by_slug(slug)
             if trig is not None:
-                companions = _today_open_companion_instances(trig["id"], result.instance_id)
+                companions = _today_open_companion_instances(
+                    trig["id"], anchor_time, result.instance_id,
+                )
 
         return templates.TemplateResponse(
             "trigger_animation.html",
@@ -215,6 +231,7 @@ def build_app() -> FastAPI:
                 "request": request,
                 "result": result,
                 "companions": companions,
+                "anchor_time": anchor_time,
                 "slug": slug,
                 "gui_url": "/",
             },
@@ -223,10 +240,12 @@ def build_app() -> FastAPI:
 
     @app.post("/t/{slug}/companions", response_class=HTMLResponse)
     async def trigger_companions(slug: str, request: Request):
+        form = await request.form()
+        anchor_time = (form.get("anchor_time") or "").strip() or None
         trig = db.get_trigger_by_slug(slug)
         if trig is None:
             raise HTTPException(404)
-        insts = _today_open_companion_instances(trig["id"])
+        insts = _today_open_companion_instances(trig["id"], anchor_time)
         for inst in insts:
             await sync.toggle_instance(inst["id"], True)
         return templates.TemplateResponse(
@@ -236,6 +255,7 @@ def build_app() -> FastAPI:
                 "result": trigger_logic.TriggerResult(
                     status="companions_done",
                     trigger_name=trig["name"],
+                    due_time=anchor_time,
                 ),
                 "companions_count": len(insts),
                 "companions": [],

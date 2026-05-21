@@ -77,15 +77,15 @@
           {% endif %}
         </fieldset>
         <fieldset class="m3-fieldset">
-          <legend>Begleitaufgaben (mit Uhrzeit — per „Alle eingenommen" mit-abhaken)</legend>
-          <p class="m3-body-text">Wird der Trigger gescannt, hakt er nur die passende Aufgabe ab. Auf der Bestätigungsseite erscheint dann ein Button „Alle eingenommen", der genau diese Aufgaben zur gewählten Uhrzeit für heute mit-abhakt.</p>
-          {% if defs_with_times %}
+          <legend>Begleitaufgaben (per „Alle eingenommen" mit-abhaken)</legend>
+          <p class="m3-body-text">Wird der Trigger gescannt, hakt er nur die zeitlich passende Hauptaufgabe ab. Auf der Bestätigungsseite erscheint dann „Alle eingenommen" — geklickt werden nur Begleiter mit-abgehakt, deren Aufgabe heute <strong>zur gleichen Uhrzeit</strong> wie die Hauptaufgabe fällig ist. Aufgaben zu anderen Uhrzeiten bleiben unangetastet, selbst wenn sie hier aktiviert sind.</p>
+          {% if all_defs %}
             <div class="m3-checklist">
-            {% for entry in defs_with_times %}
+            {% for d in all_defs %}
               <label class="m3-pill">
-                <input type="checkbox" name="companion_entries" value="{{ entry.key }}"
-                       {% if entry.key in row['companion_keys'] %}checked{% endif %}>
-                <span>{{ entry.name }} · {{ entry.hhmm }}</span>
+                <input type="checkbox" name="companion_def_ids" value="{{ d['id'] }}"
+                       {% if d['id'] in row['companion_ids'] %}checked{% endif %}>
+                <span>{{ d['name'] }}{% if d['times'] %} · {{ d['times'].replace(',', ', ') }}{% else %} · {{ d['time_of_day'] }}{% endif %}</span>
               </label>
             {% endfor %}
             </div>

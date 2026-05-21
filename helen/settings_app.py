@@ -290,25 +290,13 @@ def build_app() -> FastAPI:
         rows = []
         for t in db.list_triggers():
             assigned_ids = set(db.list_trigger_task_def_ids(t["id"]))
-            companion_keys = {f"{did}@{hhmm}" for did, hhmm in db.list_trigger_companion_entries(t["id"])}
+            companion_ids = set(db.list_trigger_companion_def_ids(t["id"]))
             rows.append({
                 "trigger": t,
                 "assigned_ids": assigned_ids,
-                "companion_keys": companion_keys,
+                "companion_ids": companion_ids,
                 "url": f"{trigger_base}/t/{t['slug']}",
             })
-
-        # Expand each task_def into one entry per configured time-of-day.
-        defs_with_times = []
-        for d in db.list_task_defs():
-            times = db.parse_times(d["times"]) or [d["time_of_day"]]
-            for hhmm in times:
-                defs_with_times.append({
-                    "def_id": d["id"],
-                    "name": d["name"],
-                    "hhmm": hhmm,
-                    "key": f"{d['id']}@{hhmm}",
-                })
 
         return templates.TemplateResponse(
             "settings_triggers.html",
@@ -317,7 +305,6 @@ def build_app() -> FastAPI:
                 "connected": _connected(),
                 "rows": rows,
                 "all_defs": db.list_task_defs(),
-                "defs_with_times": defs_with_times,
                 "active_page": "triggers",
             },
         )
@@ -338,23 +325,11 @@ def build_app() -> FastAPI:
     async def assign_trigger(request: Request, trigger_id: int):
         form = await request.form()
         task_def_ids = [int(v) for k, v in form.multi_items() if k == "task_def_ids"]
-
-        companion_entries: list[tuple[int, str]] = []
-        for k, v in form.multi_items():
-            if k != "companion_entries" or "@" not in v:
-                continue
-            did_str, hhmm = v.split("@", 1)
-            if not HHMM_RE.match(hhmm):
-                continue
-            try:
-                companion_entries.append((int(did_str), hhmm))
-            except ValueError:
-                continue
-
+        companion_ids = [int(v) for k, v in form.multi_items() if k == "companion_def_ids"]
         if db.get_trigger(trigger_id) is None:
             raise HTTPException(404)
         db.set_trigger_tasks(trigger_id, task_def_ids)
-        db.set_trigger_companions(trigger_id, companion_entries)
+        db.set_trigger_companions(trigger_id, companion_ids)
         request.session["flash"] = "Zuordnung gespeichert."
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
 
