@@ -42,11 +42,45 @@ def build_app() -> FastAPI:
         prev_d = (target - timedelta(days=1)).isoformat()
         next_d = (target + timedelta(days=1)).isoformat()
         instances = db.list_instances_for_date(target.isoformat())
+
+        # Group instances by task_def_id while preserving order of first appearance
+        grouped = []
+        seen = {}
+        for r in instances:
+            def_id = r["task_def_id"]
+            inst_dict = {
+                "id": r["id"],
+                "task_def_id": r["task_def_id"],
+                "due_date": r["due_date"],
+                "due_time": r["due_time"],
+                "completed": bool(r["completed"]),
+                "completed_at": r["completed_at"],
+                "def_name": r["def_name"],
+            }
+            if def_id not in seen:
+                group = {
+                    "task_def_id": def_id,
+                    "name": r["def_name"],
+                    "instances": [],
+                }
+                seen[def_id] = group
+                grouped.append(group)
+            seen[def_id]["instances"].append(inst_dict)
+
+        for g in grouped:
+            g_insts = g["instances"]
+            total = len(g_insts)
+            completed_count = sum(1 for i in g_insts if i["completed"])
+            g["total_count"] = total
+            g["completed_count"] = completed_count
+            g["all_completed"] = (total > 0 and completed_count == total)
+            g["some_completed"] = (completed_count > 0)
+
         return templates.TemplateResponse(
             "gui_home.html",
             {
                 "request": request,
-                "instances": instances,
+                "grouped_instances": grouped,
                 "date": target,
                 "today": date.today(),
                 "prev_date": prev_d,
@@ -63,6 +97,16 @@ def build_app() -> FastAPI:
             raise HTTPException(404)
         return JSONResponse({"id": inst_id, "completed": completed})
 
+    @app.post("/api/instances/toggle-multiple")
+    async def toggle_multiple(request: Request):
+        body = await request.json()
+        ids = [int(x) for x in body.get("ids", [])]
+        completed = bool(body.get("completed"))
+        ok = await sync.toggle_instances(ids, completed)
+        if not ok:
+            raise HTTPException(400, "Toggling failed")
+        return JSONResponse({"ids": ids, "completed": completed})
+
     @app.get("/api/instances")
     async def list_instances(d: str | None = None):
         target = _parse_date(d)
@@ -70,6 +114,7 @@ def build_app() -> FastAPI:
         return [
             {
                 "id": r["id"],
+                "task_def_id": r["task_def_id"],
                 "name": r["def_name"],
                 "due_time": r["due_time"],
                 "completed": bool(r["completed"]),
@@ -95,6 +140,7 @@ def build_app() -> FastAPI:
             "image_url": f"/img/{d['id']}?v={d['image_filename']}" if d["image_filename"] else None,
             "completed": bool(inst["completed"]),
             "completed_at": inst["completed_at"],
+            "timer_duration": d["timer_duration"],
         }
 
     # ---- Image hosting (served from data/images via FileResponse) ----

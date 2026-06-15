@@ -72,6 +72,11 @@
       <input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
     </label>
 
+    <label class="m3-field">
+      <span>Timer-Dauer (Sekunden, optional, 0 für keinen Timer)</span>
+      <input name="timer_duration" type="number" min="0" value="0">
+    </label>
+
     <div class="m3-actions">
       <button type="submit" class="m3-btn m3-btn-filled">
         <span class="material-symbols-outlined">add</span>
@@ -182,6 +187,11 @@
               <input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
             </label>
           </fieldset>
+
+          <label class="m3-field">
+            <span>Timer-Dauer (Sekunden, optional, 0 für keinen Timer)</span>
+            <input name="timer_duration" type="number" min="0" value="{{ d['timer_duration'] or 0 }}">
+          </label>
 
           <label class="m3-switch">
             <input type="checkbox" name="active" value="1" {% if d['active'] %}checked{% endif %}>

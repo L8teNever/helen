@@ -776,3 +776,218 @@ code { background: var(--md-surface-container-high); padding: 1px 6px; border-ra
     }
   }
 }
+
+/* Grouped task styling */
+.m3-task-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-lowest);
+  border: 1px solid var(--md-outline-variant);
+  transition: background-color .25s var(--md-spring-soft);
+  user-select: none;
+}
+.m3-task-group-done {
+  background: color-mix(in srgb, var(--md-success) 8%, var(--md-surface-container-lowest));
+}
+.m3-task-group-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+}
+.m3-task-group-title-wrap {
+  cursor: pointer;
+}
+.m3-task-group-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--md-on-surface);
+  transition: text-decoration 0.2s, color 0.2s;
+}
+.m3-task-group-done .m3-task-group-title {
+  text-decoration: line-through;
+  color: var(--md-on-surface-variant);
+}
+.m3-task-group-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.m3-task-group-meta .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.m3-task-group-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-left: 50px; /* align with title text */
+}
+
+@media (max-width: 640px) {
+  .m3-task-group-times {
+    padding-left: 0;
+  }
+}
+
+.m3-task-time-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.m3-task-time-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 12px;
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+  user-select: none;
+  transition: all .2s var(--md-spring-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+.m3-task-time-toggle:hover {
+  background: var(--md-surface-container-high);
+}
+.m3-task-time-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.m3-checkbox-visual-small {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--md-outline);
+  display: grid;
+  place-items: center;
+  color: transparent;
+  background: transparent;
+  transition: all .2s var(--md-spring-soft);
+}
+.m3-checkbox-visual-small .material-symbols-outlined {
+  font-size: 14px;
+  transform: scale(0.5);
+  transition: transform .2s var(--md-spring-snappy);
+}
+.m3-task-time-toggle input:checked + .m3-checkbox-visual-small {
+  background: var(--md-primary);
+  border-color: var(--md-primary);
+  color: var(--md-on-primary);
+}
+.m3-task-time-toggle input:checked + .m3-checkbox-visual-small .material-symbols-outlined {
+  transform: scale(1);
+}
+.m3-task-time-done .m3-task-time-toggle {
+  background: color-mix(in srgb, var(--md-success) 12%, var(--md-surface-container-low));
+  border-color: color-mix(in srgb, var(--md-success) 30%, transparent);
+}
+.m3-task-time-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+}
+.m3-task-time-toggle input:checked ~ .m3-task-time-label {
+  color: var(--md-on-surface);
+  text-decoration: line-through;
+}
+
+/* Indeterminate checkbox styling */
+.m3-task-toggle input:indeterminate + .m3-checkbox-visual {
+  background: var(--md-primary);
+  border-color: var(--md-primary);
+  color: var(--md-on-primary);
+}
+.m3-task-toggle input:indeterminate + .m3-checkbox-visual .material-symbols-outlined {
+  transform: scale(1);
+}
+
+/* Timer styling */
+.m3-preview-timer-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--md-surface-container-low);
+  border-radius: var(--md-shape-md);
+  border: 1px dashed var(--md-outline-variant);
+  transition: all 0.3s;
+}
+
+.m3-preview-timer-progress {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
+}
+
+.m3-timer-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.m3-timer-bg-circle {
+  fill: none;
+  stroke: var(--md-surface-container-highest);
+  stroke-width: 6px;
+}
+
+.m3-timer-progress-circle {
+  fill: none;
+  stroke: var(--md-primary);
+  stroke-width: 6px;
+  stroke-linecap: round;
+  stroke-dasharray: 283; /* 2 * PI * r (2 * 3.14159 * 45 = 282.7) */
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.1s linear, stroke 0.3s;
+}
+
+.m3-timer-text {
+  position: absolute;
+  font-size: 28px;
+  font-weight: 700;
+  font-family: monospace;
+  color: var(--md-on-surface);
+  transition: transform 0.2s, color 0.3s;
+}
+
+.m3-timer-controls {
+  display: flex;
+  gap: 8px;
+}
+
+/* Pulse / finish animations */
+@keyframes timer-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.m3-timer-finished {
+  border-color: var(--md-success);
+  background: color-mix(in srgb, var(--md-success) 8%, var(--md-surface-container-low));
+  animation: timer-pulse 0.5s ease-in-out 3;
+}
+
+.m3-timer-finished .m3-timer-progress-circle {
+  stroke: var(--md-success);
+}
+
+.m3-timer-finished .m3-timer-text {
+  color: var(--md-success);
+  transform: scale(1.1);
+}
+

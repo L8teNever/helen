@@ -30,28 +30,42 @@
 </nav>
 
 <section class="m3-card m3-card-tasks" data-task-list data-task-container>
-  {% if not instances %}
+  {% if not grouped_instances %}
     <div class="m3-empty-hero">
       <span class="material-symbols-outlined">check_circle</span>
       <p>Keine Aufgaben für diesen Tag.</p>
     </div>
   {% else %}
   <ul class="m3-task-list">
-    {% for i in instances %}
-    <li class="m3-task {% if i['completed'] %}m3-task-done{% endif %}" data-instance-id="{{ i['id'] }}" data-def-id="{{ i['task_def_id'] }}">
-      <label class="m3-task-toggle">
-        <input type="checkbox" data-toggle {% if i['completed'] %}checked{% endif %}>
-        <span class="m3-checkbox-visual">
-          <span class="material-symbols-outlined">check</span>
-        </span>
-      </label>
-      <div class="m3-task-body">
-        <div class="m3-task-title">{{ i['def_name'] }}</div>
-        <div class="m3-task-meta">
-          <span class="material-symbols-outlined">schedule</span>
-          {{ i['due_time'] }}
-          {% if i['completed_at'] %} · erledigt{% endif %}
+    {% for g in grouped_instances %}
+    <li class="m3-task-group {% if g.all_completed %}m3-task-group-done{% endif %}" data-def-id="{{ g.task_def_id }}">
+      <div class="m3-task-group-header">
+        <label class="m3-task-toggle">
+          <input type="checkbox" data-group-toggle {% if g.all_completed %}checked{% endif %} {% if g.some_completed and not g.all_completed %}data-indeterminate="1"{% endif %}>
+          <span class="m3-checkbox-visual">
+            <span class="material-symbols-outlined">{% if g.some_completed and not g.all_completed %}remove{% else %}check{% endif %}</span>
+          </span>
+        </label>
+        <div class="m3-task-group-title-wrap" data-instance-id="{{ g.instances[0].id }}">
+          <div class="m3-task-group-title">{{ g.name }}</div>
+          <div class="m3-task-group-meta" data-meta-text>
+            <span class="material-symbols-outlined">medication</span>
+            <span>{{ g.completed_count }} von {{ g.total_count }} erledigt</span>
+          </div>
         </div>
+      </div>
+      <div class="m3-task-group-times">
+        {% for inst in g.instances %}
+        <div class="m3-task-time-item {% if inst.completed %}m3-task-time-done{% endif %}" data-instance-id="{{ inst.id }}">
+          <label class="m3-task-time-toggle">
+            <input type="checkbox" data-toggle {% if inst.completed %}checked{% endif %}>
+            <span class="m3-checkbox-visual-small">
+              <span class="material-symbols-outlined">check</span>
+            </span>
+            <span class="m3-task-time-label">{{ inst.due_time }}</span>
+          </label>
+        </div>
+        {% endfor %}
       </div>
     </li>
     {% endfor %}
@@ -86,6 +100,19 @@
         <h3 class="m3-sheet-section-label">Notiz</h3>
         <p class="m3-sheet-notes" data-preview-notes>—</p>
       </section>
+
+      <div class="m3-preview-timer-wrap" data-preview-timer-wrap hidden>
+        <div class="m3-preview-timer-progress">
+          <svg class="m3-timer-svg" viewBox="0 0 100 100">
+            <circle class="m3-timer-bg-circle" cx="50" cy="50" r="45"></circle>
+            <circle class="m3-timer-progress-circle" cx="50" cy="50" r="45" data-timer-circle></circle>
+          </svg>
+          <span class="m3-timer-text" data-timer-text>0</span>
+        </div>
+        <div class="m3-timer-controls">
+          <button type="button" class="m3-btn m3-btn-tonal" data-timer-action>Pause</button>
+        </div>
+      </div>
     </div>
   </div>
 </dialog>

@@ -156,6 +156,7 @@ def build_app() -> FastAPI:
         times: List[str] = Form(...),
         schedule_type: str = Form(...),
         notes: Optional[str] = Form(None),
+        timer_duration: Optional[int] = Form(0),
         image: Optional[UploadFile] = File(None),
         mon: Optional[str] = Form(None),
         tue: Optional[str] = Form(None),
@@ -174,7 +175,11 @@ def build_app() -> FastAPI:
         if schedule_type == "weekdays" and mask == 0:
             raise HTTPException(400, "Mindestens einen Wochentag wählen.")
         notes_clean = (notes or "").strip() or None
-        new_id = db.create_task_def(name.strip(), times_clean, schedule_type, mask, notes=notes_clean)
+        timer_dur = int(timer_duration) if timer_duration is not None else 0
+        new_id = db.create_task_def(
+            name.strip(), times_clean, schedule_type, mask,
+            notes=notes_clean, timer_duration=timer_dur
+        )
         if image and image.filename:
             raw = await image.read()
             if raw:
@@ -202,6 +207,7 @@ def build_app() -> FastAPI:
         times: List[str] = Form(...),
         schedule_type: str = Form(...),
         notes: Optional[str] = Form(None),
+        timer_duration: Optional[int] = Form(0),
         image: Optional[UploadFile] = File(None),
         remove_image: Optional[str] = Form(None),
         active: Optional[str] = Form(None),
@@ -220,6 +226,7 @@ def build_app() -> FastAPI:
         mask = 127 if schedule_type == "daily" else _mask_from_flags(mon, tue, wed, thu, fri, sat, sun)
         new_active = 1 if active else 0
         notes_clean = (notes or "").strip() or None
+        timer_dur = int(timer_duration) if timer_duration is not None else 0
 
         new_image_filename = existing["image_filename"]
         if remove_image:
@@ -238,6 +245,7 @@ def build_app() -> FastAPI:
         db.update_task_def(
             def_id, name.strip(), times_clean, schedule_type, mask, new_active,
             notes=notes_clean, image_filename=new_image_filename,
+            timer_duration=timer_dur,
         )
         # Wipe today+future (could be stale due to schedule/time/active change),
         # then regenerate the lookahead window. Past instances are preserved as history.

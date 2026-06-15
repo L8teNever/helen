@@ -125,6 +125,12 @@
   const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
   const parseIso = (s) => { const [y, m, da] = s.split("-").map(Number); return new Date(y, m - 1, da); };
 
+  function initIndeterminateState(parentEl = document) {
+    parentEl.querySelectorAll("[data-indeterminate]").forEach((el) => {
+      el.indeterminate = true;
+    });
+  }
+
   function renderTasks(instances) {
     if (!instances.length) {
       return `<div class="m3-empty-hero">
@@ -132,20 +138,67 @@
         <p>Keine Aufgaben für diesen Tag.</p>
       </div>`;
     }
-    return `<ul class="m3-task-list">` + instances.map((i) => `
-      <li class="m3-task ${i.completed ? "m3-task-done" : ""}" data-instance-id="${i.id}">
-        <label class="m3-task-toggle">
-          <input type="checkbox" data-toggle ${i.completed ? "checked" : ""}>
-          <span class="m3-checkbox-visual"><span class="material-symbols-outlined">check</span></span>
-        </label>
-        <div class="m3-task-body">
-          <div class="m3-task-title">${escapeHtml(i.name)}</div>
-          <div class="m3-task-meta">
-            <span class="material-symbols-outlined">schedule</span>
-            ${escapeHtml(i.due_time)}${i.completed_at ? " · erledigt" : ""}
+
+    // Group by task_def_id preserving original order of first occurrence
+    const groups = [];
+    const seen = {};
+    for (const i of instances) {
+      const defId = i.task_def_id;
+      if (!(defId in seen)) {
+        const group = {
+          task_def_id: defId,
+          name: i.name,
+          instances: []
+        };
+        seen[defId] = group;
+        groups.push(group);
+      }
+      seen[defId].instances.push(i);
+    }
+
+    // Process aggregates for each group
+    for (const g of groups) {
+      const total = g.instances.length;
+      const completedCount = g.instances.filter(i => i.completed).length;
+      g.total_count = total;
+      g.completed_count = completedCount;
+      g.all_completed = (total > 0 && completedCount === total);
+      g.some_completed = (completedCount > 0);
+    }
+
+    return `<ul class="m3-task-list">` + groups.map((g) => {
+      const isIndeterminate = g.some_completed && !g.all_completed;
+      return `
+      <li class="m3-task-group ${g.all_completed ? "m3-task-group-done" : ""}" data-def-id="${g.task_def_id}">
+        <div class="m3-task-group-header">
+          <label class="m3-task-toggle">
+            <input type="checkbox" data-group-toggle ${g.all_completed ? "checked" : ""} ${isIndeterminate ? "data-indeterminate=\"1\"" : ""}>
+            <span class="m3-checkbox-visual">
+              <span class="material-symbols-outlined">${isIndeterminate ? "remove" : "check"}</span>
+            </span>
+          </label>
+          <div class="m3-task-group-title-wrap" data-instance-id="${g.instances[0].id}">
+            <div class="m3-task-group-title">${escapeHtml(g.name)}</div>
+            <div class="m3-task-group-meta" data-meta-text>
+              <span class="material-symbols-outlined">medication</span>
+              <span>${g.completed_count} von ${g.total_count} erledigt</span>
+            </div>
           </div>
         </div>
-      </li>`).join("") + `</ul>`;
+        <div class="m3-task-group-times">
+          ${g.instances.map((i) => `
+          <div class="m3-task-time-item ${i.completed ? "m3-task-time-done" : ""}" data-instance-id="${i.id}">
+            <label class="m3-task-time-toggle">
+              <input type="checkbox" data-toggle ${i.completed ? "checked" : ""}>
+              <span class="m3-checkbox-visual-small">
+                <span class="material-symbols-outlined">check</span>
+              </span>
+              <span class="m3-task-time-label">${escapeHtml(i.due_time)}</span>
+            </label>
+          </div>`).join("")}
+        </div>
+      </li>`;
+    }).join("") + `</ul>`;
   }
 
   let navBusy = false;
@@ -170,6 +223,8 @@
 
       list.classList.remove("m3-slide-out-left", "m3-slide-out-right");
       list.innerHTML = renderTasks(tasks);
+      initIndeterminateState(list);
+
       if (inClass) {
         list.classList.add(inClass);
         setTimeout(() => list.classList.remove(inClass), 240);
@@ -235,11 +290,87 @@
     notesWrap: modal.querySelector("[data-preview-notes-wrap]"),
     notes: modal.querySelector("[data-preview-notes]"),
     close: modal.querySelector("[data-preview-close]"),
+    timerWrap: modal.querySelector("[data-preview-timer-wrap]"),
+    timerCircle: modal.querySelector("[data-timer-circle]"),
+    timerText: modal.querySelector("[data-timer-text]"),
+    timerAction: modal.querySelector("[data-timer-action]"),
   };
+
+  let timerInterval = null;
+  let timerTimeLeft = 0;
+  let timerDuration = 0;
+
+  function clearActiveTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    if (els && els.timerWrap) {
+      els.timerWrap.classList.remove("m3-timer-finished");
+      els.timerWrap.hidden = true;
+    }
+  }
+
+  function setupAndStartTimer(duration) {
+    if (!els || !els.timerWrap) return;
+    
+    timerDuration = duration;
+    timerTimeLeft = duration;
+    
+    els.timerWrap.classList.remove("m3-timer-finished");
+    els.timerWrap.hidden = false;
+    els.timerText.textContent = timerTimeLeft;
+    els.timerCircle.style.strokeDashoffset = 0;
+    
+    const circleLength = 283;
+    let isPaused = false;
+    els.timerAction.textContent = "Pause";
+    
+    const updateTimer = () => {
+      if (isPaused) return;
+      timerTimeLeft--;
+      if (timerTimeLeft <= 0) {
+        timerTimeLeft = 0;
+        clearInterval(timerInterval);
+        timerInterval = null;
+        els.timerText.textContent = "Fertig";
+        els.timerCircle.style.strokeDashoffset = circleLength;
+        els.timerWrap.classList.add("m3-timer-finished");
+        els.timerAction.textContent = "Neustart";
+        if (navigator.vibrate) {
+          navigator.vibrate([200, 100, 200]);
+        }
+        return;
+      }
+      els.timerText.textContent = timerTimeLeft;
+      const offset = circleLength - (timerTimeLeft / timerDuration) * circleLength;
+      els.timerCircle.style.strokeDashoffset = offset;
+    };
+    
+    const newAction = els.timerAction.cloneNode(true);
+    els.timerAction.parentNode.replaceChild(newAction, els.timerAction);
+    els.timerAction = newAction;
+    els.timerAction.addEventListener("click", () => {
+      if (timerTimeLeft <= 0) {
+        setupAndStartTimer(duration);
+      } else if (isPaused) {
+        isPaused = false;
+        els.timerAction.textContent = "Pause";
+      } else {
+        isPaused = true;
+        els.timerAction.textContent = "Fortsetzen";
+      }
+    });
+    
+    timerInterval = setInterval(updateTimer, 1000);
+  }
 
   async function openPreview(instanceId) {
     if (!modal) return;
     try {
+      // Clear any running timer first
+      clearActiveTimer();
+
       const res = await fetch(`/api/instances/${instanceId}/preview`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
@@ -263,63 +394,156 @@
       }
       if (typeof modal.showModal === "function") modal.showModal();
       else modal.setAttribute("open", "");
+
+      // Start timer if duration is configured
+      if (d.timer_duration && d.timer_duration > 0) {
+        setupAndStartTimer(d.timer_duration);
+      }
     } catch (e) {
       console.warn("preview failed", e);
     }
   }
 
   if (modal) {
-    els.close.addEventListener("click", () => modal.close());
+    els.close.addEventListener("click", () => {
+      clearActiveTimer();
+      modal.close();
+    });
     modal.addEventListener("click", (e) => {
       // click on backdrop (the dialog element itself) closes
-      if (e.target === modal) modal.close();
+      if (e.target === modal) {
+        clearActiveTimer();
+        modal.close();
+      }
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && modal.open) modal.close();
+      if (e.key === "Escape" && modal.open) {
+        clearActiveTimer();
+        modal.close();
+      }
     });
   }
 
-  // Tap/click on the task body opens the preview modal.
-  // The checkbox area (.m3-task-toggle) keeps its native behaviour and only toggles.
-  list.addEventListener("click", (e) => {
-    if (e.target.closest(".m3-task-toggle")) return;
-    const task = e.target.closest(".m3-task");
-    if (!task) return;
-    const id = task.dataset.instanceId;
-    if (id) openPreview(id);
-  });
+  function handlePreviewTrigger(e) {
+    if (e.target.closest(".m3-task-toggle") || e.target.closest(".m3-task-time-toggle")) return;
+    const targetWithId = e.target.closest("[data-instance-id]");
+    if (!targetWithId) return;
+    const id = targetWithId.dataset.instanceId;
+    if (id) {
+      e.preventDefault();
+      openPreview(id);
+    }
+  }
 
-  // Right-click on desktop also opens the modal (no native menu).
-  list.addEventListener("contextmenu", (e) => {
-    if (e.target.closest(".m3-task-toggle")) return;
-    const task = e.target.closest(".m3-task");
-    if (!task) return;
-    e.preventDefault();
-    const id = task.dataset.instanceId;
-    if (id) openPreview(id);
-  });
+  list.addEventListener("click", handlePreviewTrigger);
+  list.addEventListener("contextmenu", handlePreviewTrigger);
 
-  // Optimistic checkbox toggle
+  function updateGroupStatus(groupEl) {
+    const subCheckboxes = Array.from(groupEl.querySelectorAll("[data-toggle]"));
+    const total = subCheckboxes.length;
+    const completedCount = subCheckboxes.filter(cb => cb.checked).length;
+    
+    const metaText = groupEl.querySelector("[data-meta-text] span");
+    if (metaText) {
+      metaText.textContent = `${completedCount} von ${total} erledigt`;
+    }
+    
+    const groupToggle = groupEl.querySelector("[data-group-toggle]");
+    const groupToggleIcon = groupEl.querySelector("[data-group-toggle] + .m3-checkbox-visual .material-symbols-outlined");
+    
+    if (groupToggle) {
+      if (completedCount === total) {
+        groupToggle.checked = true;
+        groupToggle.indeterminate = false;
+        if (groupToggleIcon) groupToggleIcon.textContent = "check";
+        groupEl.classList.add("m3-task-group-done");
+      } else if (completedCount > 0) {
+        groupToggle.checked = false;
+        groupToggle.indeterminate = true;
+        if (groupToggleIcon) groupToggleIcon.textContent = "remove";
+        groupEl.classList.remove("m3-task-group-done");
+      } else {
+        groupToggle.checked = false;
+        groupToggle.indeterminate = false;
+        if (groupToggleIcon) groupToggleIcon.textContent = "check";
+        groupEl.classList.remove("m3-task-group-done");
+      }
+    }
+  }
+
+  // Checkbox toggle (individual or group)
   list.addEventListener("change", async (ev) => {
     const cb = ev.target;
-    if (!(cb instanceof HTMLInputElement) || !cb.matches("[data-toggle]")) return;
-    const item = cb.closest(".m3-task");
-    const id = item?.dataset?.instanceId;
-    if (!id) return;
-    const completed = cb.checked;
-    item.classList.toggle("m3-task-done", completed);
-    try {
-      const res = await fetch(`/api/instances/${id}/toggle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed }),
+    if (!(cb instanceof HTMLInputElement)) return;
+
+    if (cb.matches("[data-toggle]")) {
+      const timeItem = cb.closest(".m3-task-time-item");
+      const id = timeItem?.dataset?.instanceId;
+      if (!id) return;
+      
+      const completed = cb.checked;
+      const groupEl = cb.closest(".m3-task-group");
+      const originalChecked = !completed;
+      
+      timeItem.classList.toggle("m3-task-time-done", completed);
+      if (groupEl) updateGroupStatus(groupEl);
+      
+      try {
+        const res = await fetch(`/api/instances/${id}/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ completed }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (e) {
+        cb.checked = originalChecked;
+        timeItem.classList.toggle("m3-task-time-done", originalChecked);
+        if (groupEl) updateGroupStatus(groupEl);
+        console.error("toggle failed", e);
+      }
+    } else if (cb.matches("[data-group-toggle]")) {
+      const groupEl = cb.closest(".m3-task-group");
+      if (!groupEl) return;
+      
+      const subItems = Array.from(groupEl.querySelectorAll(".m3-task-time-item"));
+      const ids = subItems.map(el => parseInt(el.dataset.instanceId)).filter(Boolean);
+      const completed = cb.checked;
+      
+      const originalStates = subItems.map(el => {
+        const input = el.querySelector("[data-toggle]");
+        return {
+          el: el,
+          input: input,
+          checked: input ? input.checked : false
+        };
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    } catch (e) {
-      // Revert on failure
-      cb.checked = !completed;
-      item.classList.toggle("m3-task-done", !completed);
-      console.error("toggle failed", e);
+      
+      subItems.forEach(el => {
+        const input = el.querySelector("[data-toggle]");
+        if (input) {
+          input.checked = completed;
+        }
+        el.classList.toggle("m3-task-time-done", completed);
+      });
+      updateGroupStatus(groupEl);
+      
+      try {
+        const res = await fetch(`/api/instances/toggle-multiple`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, completed }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (e) {
+        originalStates.forEach(state => {
+          if (state.input) {
+            state.input.checked = state.checked;
+          }
+          state.el.classList.toggle("m3-task-time-done", state.checked);
+        });
+        updateGroupStatus(groupEl);
+        console.error("group toggle failed", e);
+      }
     }
   });
 
@@ -338,13 +562,16 @@
       setLive(true);
       try {
         const msg = JSON.parse(e.data);
-        const li = list.querySelector(`.m3-task[data-instance-id="${msg.id}"]`);
-        if (!li) return;
-        const cb = li.querySelector("[data-toggle]");
-        if (cb && cb.checked !== !!msg.completed) {
-          cb.checked = !!msg.completed;
+        const timeItem = list.querySelector(`.m3-task-time-item[data-instance-id="${msg.id}"]`);
+        if (!timeItem) return;
+        const cb = timeItem.querySelector("[data-toggle]");
+        const completed = !!msg.completed;
+        if (cb && cb.checked !== completed) {
+          cb.checked = completed;
         }
-        li.classList.toggle("m3-task-done", !!msg.completed);
+        timeItem.classList.toggle("m3-task-time-done", completed);
+        const groupEl = timeItem.closest(".m3-task-group");
+        if (groupEl) updateGroupStatus(groupEl);
       } catch {}
     });
     es.onopen = () => setLive(true);
@@ -355,4 +582,5 @@
     };
   };
   connect();
+  initIndeterminateState(document);
 })();

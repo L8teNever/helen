@@ -39,6 +39,35 @@ async def toggle_instance(inst_id: int, completed: bool, loop: Optional[asyncio.
     return True
 
 
+async def toggle_instances(inst_ids: list[int], completed: bool) -> bool:
+    """Toggle multiple task instances locally and re-render their Calendar bundles."""
+    touched_bundles: set[tuple[str, str]] = set()
+    success = False
+
+    for inst_id in inst_ids:
+        inst = db.get_instance(inst_id)
+        if inst is None:
+            continue
+        db.set_instance_completed(inst_id, completed)
+        touched_bundles.add((inst["due_date"], inst["due_time"]))
+
+        await sse.broadcast(
+            "instance_changed",
+            {"id": inst_id, "completed": completed, "source": "local"},
+        )
+        success = True
+
+    # Lazy import to avoid scheduler ↔ sync circular import.
+    from helen import scheduler
+    for due_date, due_time in touched_bundles:
+        try:
+            await asyncio.to_thread(scheduler.reconcile_bundle, due_date, due_time)
+        except Exception:
+            log.exception("Reconcile after toggle failed for bundle %s %s", due_date, due_time)
+
+    return success
+
+
 def poll_google_once(loop: asyncio.AbstractEventLoop) -> None:
     """Pull Calendar state and reconcile completion for single-member bundles only."""
     if not google_api.is_connected():

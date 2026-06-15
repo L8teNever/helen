@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS task_defs (
     created_at TEXT NOT NULL,
     image_filename TEXT,
     notes TEXT,
-    times TEXT NOT NULL DEFAULT ''
+    times TEXT NOT NULL DEFAULT '',
+    timer_duration INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS task_instances (
@@ -136,6 +137,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE task_defs ADD COLUMN times TEXT NOT NULL DEFAULT ''")
         # Seed `times` from the legacy single `time_of_day` column.
         conn.execute("UPDATE task_defs SET times = time_of_day WHERE times = ''")
+    if "timer_duration" not in cols:
+        conn.execute("ALTER TABLE task_defs ADD COLUMN timer_duration INTEGER DEFAULT 0")
 
     # task_instances: relax UNIQUE(task_def_id, due_date) → (task_def_id, due_date, due_time).
     # SQLite can't ALTER a UNIQUE constraint, so we rebuild the table when the old shape is detected.
@@ -283,16 +286,17 @@ def parse_times(csv: Optional[str]) -> list[str]:
 def create_task_def(
     name: str, times: list[str], schedule_type: str, weekdays_mask: int,
     notes: Optional[str] = None, image_filename: Optional[str] = None,
+    timer_duration: int = 0,
 ) -> int:
     if not times:
         raise ValueError("Mindestens eine Uhrzeit erforderlich.")
     primary = times[0]
     with _lock:
         cur = get_conn().execute(
-            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at,notes,image_filename,times) "
-            "VALUES(?,?,?,?,1,?,?,?,?)",
+            "INSERT INTO task_defs(name,time_of_day,schedule_type,weekdays_mask,active,created_at,notes,image_filename,times,timer_duration) "
+            "VALUES(?,?,?,?,1,?,?,?,?,?)",
             (name, primary, schedule_type, weekdays_mask, datetime.utcnow().isoformat(),
-             notes, image_filename, _times_csv(times)),
+             notes, image_filename, _times_csv(times), timer_duration),
         )
         return cur.lastrowid
 
@@ -300,6 +304,7 @@ def create_task_def(
 def update_task_def(
     def_id: int, name: str, times: list[str], schedule_type: str, weekdays_mask: int, active: int,
     notes: Optional[str] = None, image_filename: Optional[str] = None,
+    timer_duration: int = 0,
 ) -> None:
     if not times:
         raise ValueError("Mindestens eine Uhrzeit erforderlich.")
@@ -307,9 +312,9 @@ def update_task_def(
     with _lock:
         get_conn().execute(
             "UPDATE task_defs SET name=?, time_of_day=?, schedule_type=?, weekdays_mask=?, active=?, "
-            "notes=?, image_filename=?, times=? WHERE id=?",
+            "notes=?, image_filename=?, times=?, timer_duration=? WHERE id=?",
             (name, primary, schedule_type, weekdays_mask, active, notes, image_filename,
-             _times_csv(times), def_id),
+             _times_csv(times), timer_duration, def_id),
         )
 
 
