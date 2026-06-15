@@ -13,6 +13,11 @@
   <link rel="stylesheet" href="/static/css/m3-expressive.css">
   <meta name="theme-color" content="#6750a4" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1d1b20" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/static/img/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   {% block head_extra %}{% endblock %}
 </head>
 <body class="m3-body">
@@ -38,6 +43,17 @@
 
   {% block bottom_nav %}{% endblock %}
   <script src="/static/js/app.js?v=3" defer></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/service-worker.js').then(function(reg) {
+          console.log('ServiceWorker registered:', reg.scope);
+        }).catch(function(err) {
+          console.error('ServiceWorker registration failed:', err);
+        });
+      });
+    }
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

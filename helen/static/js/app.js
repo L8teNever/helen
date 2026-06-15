@@ -581,6 +581,95 @@
       setTimeout(connect, 3000);
     };
   };
+
+  // ---- Web Push Notification Subscription ----
+  const subscribeBtn = document.getElementById("push-subscribe-btn");
+  
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  async function checkPushSubscription() {
+    if (!subscribeBtn) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.warn("Push messaging is not supported");
+      return;
+    }
+    
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        // Already subscribed, hide button
+        subscribeBtn.style.display = "none";
+      } else {
+        // Show activation button
+        subscribeBtn.style.display = "inline-flex";
+      }
+    } catch (e) {
+      console.error("Error checking subscription:", e);
+    }
+  }
+
+  if (subscribeBtn) {
+    subscribeBtn.addEventListener("click", async () => {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          alert("Benachrichtigungen wurden blockiert. Bitte in den Browsereinstellungen freigeben.");
+          return;
+        }
+
+        const reg = await navigator.serviceWorker.ready;
+        const resKey = await fetch("/api/push/public-key");
+        if (!resKey.ok) throw new Error("VAPID public key fetch failed");
+        const { publicKey } = await resKey.json();
+
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+
+        // Send to backend
+        const resSub = await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(subscription)
+        });
+
+        if (resSub.ok) {
+          subscribeBtn.style.display = "none";
+          console.log("Push notification subscription successful");
+        } else {
+          throw new Error("Failed to register subscription on backend");
+        }
+      } catch (e) {
+        console.error("Subscription process failed:", e);
+        alert("Fehler bei der Aktivierung: " + e.message);
+      }
+    });
+
+    checkPushSubscription();
+  }
+
+  // ---- Auto-open preview from URL parameter ?preview=ID ----
+  const urlParams = new URLSearchParams(window.location.search);
+  const previewId = urlParams.get("preview");
+  if (previewId) {
+    setTimeout(() => {
+      openPreview(previewId);
+    }, 300);
+  }
+
   connect();
   initIndeterminateState(document);
 })();

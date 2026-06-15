@@ -255,14 +255,64 @@ def _poll_job():
         log.exception("poll_google_once failed.")
 
 
+def _push_notification_job():
+    try:
+        from helen import webpush_api
+        tz_name = os.environ.get("HELEN_TZ", "Europe/Berlin")
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        today_iso = now.date().isoformat()
+        now_time = now.strftime("%H:%M")
+
+        # Get unnotified tasks
+        query = """
+            SELECT ti.id, ti.due_time, td.name, td.id as task_def_id
+            FROM task_instances ti
+            JOIN task_defs td ON ti.task_def_id = td.id
+            WHERE ti.due_date = ? AND ti.due_time <= ? AND ti.completed = 0 AND ti.push_notified = 0
+        """
+        rows = db.get_conn().execute(query, (today_iso, now_time)).fetchall()
+        for row in rows:
+            instance_id = row["id"]
+            task_name = row["name"]
+            due_time = row["due_time"]
+            task_def_id = row["task_def_id"]
+
+            # Find trigger if any
+            trig = db.get_conn().execute("""
+                SELECT t.slug
+                FROM triggers t
+                JOIN trigger_tasks tt ON tt.trigger_id = t.id
+                WHERE tt.task_def_id = ?
+                LIMIT 1
+            """, (task_def_id,)).fetchone()
+
+            if trig:
+                target_url = f"/t/{trig['slug']}"
+            else:
+                target_url = f"/?preview={instance_id}"
+
+            payload = {
+                "title": f"Aufgabe fällig! ({due_time})",
+                "body": f"Zeit für: {task_name}",
+                "url": target_url
+            }
+
+            # Broadcast to all subscriptions
+            webpush_api.broadcast_push_notification(payload)
+
+            # Mark as notified in DB
+            db.mark_instance_push_notified(instance_id)
+
+    except Exception:
+        log.exception("push_notification_job failed")
+
+
 def _midnight_job():
     try:
         generate_today()
     except Exception:
         log.exception("generate_today failed.")
-
-
-
 
 
 def start(loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
@@ -272,7 +322,7 @@ def start(loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
     sched.add_job(_midnight_job, CronTrigger(hour=0, minute=5), id="midnight_generate", replace_existing=True)
     sched.add_job(_poll_job, IntervalTrigger(seconds=30), id="poll_google", replace_existing=True, max_instances=1)
     sched.add_job(_midnight_job, "date", run_date=datetime.utcnow() + timedelta(seconds=5), id="boot_generate")
-
+    sched.add_job(_push_notification_job, IntervalTrigger(seconds=30), id="push_notifications", replace_existing=True, max_instances=1)
     sched.start()
     _scheduler = sched
     log.info("Scheduler started.")

@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from helen import db, images as image_store, sse, sync, trigger_logic
+from helen import db, images as image_store, sse, sync, trigger_logic, webpush_api
 
 log = logging.getLogger("helen.gui")
 
@@ -309,5 +309,32 @@ def build_app() -> FastAPI:
                 "gui_url": "/",
             },
         )
+
+    @app.get("/manifest.json")
+    async def manifest():
+        manifest_path = BASE_DIR / "static" / "manifest.json"
+        return FileResponse(manifest_path, media_type="application/json")
+
+    @app.get("/service-worker.js")
+    async def service_worker():
+        sw_path = BASE_DIR / "static" / "service-worker.js"
+        return FileResponse(sw_path, media_type="application/javascript")
+
+    @app.get("/api/push/public-key")
+    async def get_push_public_key():
+        pub_key = webpush_api.ensure_vapid_keys()
+        return {"publicKey": pub_key}
+
+    @app.post("/api/push/subscribe")
+    async def post_push_subscribe(request: Request):
+        payload = await request.json()
+        endpoint = payload.get("endpoint")
+        keys = payload.get("keys", {})
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
+        if not endpoint or not p256dh or not auth:
+            raise HTTPException(status_code=400, detail="Invalid subscription payload")
+        db.add_push_subscription(endpoint, p256dh, auth)
+        return {"status": "ok"}
 
     return app

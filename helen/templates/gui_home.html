@@ -1,15 +1,19 @@
 {% extends "_layout.html" %}
 {% block title %}HELEN · {{ date.strftime('%a, %d.%m.') }}{% endblock %}
 {% block head_extra %}
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
-  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/static/img/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/img/icon-192.png">
 {% endblock %}
 {% block topbar_icon %}medication{% endblock %}
 {% block topbar_title %}
   <span data-topbar-title>{% if date == today %}Heute{% else %}{{ date.strftime('%a, %d.%m.%Y') }}{% endif %}</span>
 {% endblock %}
 {% block topbar_trailing %}
+  <button class="m3-chip m3-chip-action" id="push-subscribe-btn" style="display: none; cursor: pointer; background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">
+    <span class="material-symbols-outlined">notifications</span>
+    <span>Aktivieren</span>
+  </button>
   <span class="m3-chip" data-sync-indicator>
     <span class="material-symbols-outlined">sync</span>
     Live

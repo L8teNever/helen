@@ -205,6 +205,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Drop the legacy tasklist id so the new Calendar flow starts clean.
         conn.execute("DELETE FROM config WHERE key='helen_tasklist_id'")
 
+    # push notification setup
+    ti_cols = {r[1] for r in conn.execute("PRAGMA table_info(task_instances)")}
+    if "push_notified" not in ti_cols:
+        conn.execute("ALTER TABLE task_instances ADD COLUMN push_notified INTEGER DEFAULT 0")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            endpoint TEXT PRIMARY KEY,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    """)
+
+
 
 # ---------- config ----------
 
@@ -500,6 +515,28 @@ def list_trigger_companion_def_ids(trigger_id: int) -> list[int]:
     return [r["task_def_id"] for r in get_conn().execute(
         "SELECT task_def_id FROM trigger_companions WHERE trigger_id=?", (trigger_id,)
     )]
+
+
+# ---------- push subscriptions ----------
+
+def add_push_subscription(endpoint: str, p256dh: str, auth: str) -> None:
+    with _lock:
+        get_conn().execute(
+            "INSERT INTO push_subscriptions(endpoint, p256dh, auth, created_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, created_at=excluded.created_at",
+            (endpoint, p256dh, auth, datetime.utcnow().isoformat()),
+        )
+
+def list_push_subscriptions() -> list[sqlite3.Row]:
+    return list(get_conn().execute("SELECT * FROM push_subscriptions"))
+
+def delete_push_subscription(endpoint: str) -> None:
+    with _lock:
+        get_conn().execute("DELETE FROM push_subscriptions WHERE endpoint=?", (endpoint,))
+
+def mark_instance_push_notified(instance_id: int) -> None:
+    with _lock:
+        get_conn().execute("UPDATE task_instances SET push_notified=1 WHERE id=?", (instance_id,))
 
 
 
