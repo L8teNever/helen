@@ -7,4 +7,3 @@ google-auth-oauthlib==1.2.1
 google-api-python-client==2.151.0
 apscheduler==3.10.4
 itsdangerous==2.2.0
-webuntis==0.1.24

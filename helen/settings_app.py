@@ -47,7 +47,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from helen import db, google_api, images as image_store, scheduler, untis_sync
+from helen import db, google_api, images as image_store, scheduler
 
 log = logging.getLogger("helen.settings")
 
@@ -347,58 +347,7 @@ def build_app() -> FastAPI:
         request.session["flash"] = "Trigger entfernt."
         return RedirectResponse("/triggers", status_code=status.HTTP_303_SEE_OTHER)
 
-    # ---- Untis ----
 
-    @app.get("/untis", response_class=HTMLResponse)
-    async def untis_page(request: Request):
-        return templates.TemplateResponse(
-            "settings_untis.html",
-            {
-                "request": request,
-                "connected": _connected(),
-                "active_page": "untis",
-                "configured": untis_sync.is_configured(),
-                "untis_cfg": untis_sync.get_config_summary(),
-                "untis_calendar_id": db.get_config("helen_untis_calendar_id"),
-                "last_sync_at": db.get_config("untis_last_sync_at"),
-                "last_sync_stats": db.get_config("untis_last_sync_stats"),
-            },
-        )
-
-    @app.post("/untis/credentials")
-    async def untis_save(
-        request: Request,
-        server: str = Form(...),
-        school: str = Form(...),
-        username: str = Form(...),
-        password: str = Form(...),
-        klasse: str = Form(...),
-    ):
-        if not server.strip() or not school.strip() or not username.strip() or not klasse.strip():
-            raise HTTPException(400, "Server, Schule, Benutzer und Klasse sind Pflicht.")
-        untis_sync.save_config(server, school, username, password, klasse)
-        request.session["flash"] = "Untis-Zugangsdaten gespeichert."
-        return RedirectResponse("/untis", status_code=status.HTTP_303_SEE_OTHER)
-
-    @app.post("/untis/sync-now")
-    async def untis_sync_now(request: Request):
-        try:
-            stats = untis_sync.sync_window()
-            request.session["flash"] = (
-                f"Untis-Sync ok: {stats['created']} neu, {stats['updated']} aktualisiert, "
-                f"{stats['skipped']} unverändert, {stats['deleted']} gelöscht."
-            )
-        except Exception as e:
-            log.exception("Manual Untis sync failed.")
-            request.session["flash"] = f"Untis-Sync fehlgeschlagen: {e}"
-        return RedirectResponse("/untis", status_code=status.HTTP_303_SEE_OTHER)
-
-    @app.post("/untis/disconnect")
-    async def untis_disconnect(request: Request):
-        untis_sync.clear_config()
-        db.set_config("helen_untis_calendar_id", None)
-        request.session["flash"] = "Untis-Verbindung entfernt."
-        return RedirectResponse("/untis", status_code=status.HTTP_303_SEE_OTHER)
 
     return app
 

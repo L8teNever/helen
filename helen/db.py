@@ -73,15 +73,6 @@ CREATE TABLE IF NOT EXISTS trigger_companions (
     PRIMARY KEY (trigger_id, task_def_id)
 );
 
-CREATE TABLE IF NOT EXISTS untis_events (
-    period_id TEXT PRIMARY KEY,
-    google_event_id TEXT NOT NULL,
-    event_date TEXT NOT NULL,
-    fingerprint TEXT NOT NULL,
-    last_synced_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_untis_events_date ON untis_events(event_date);
 """
 
 
@@ -511,33 +502,4 @@ def list_trigger_companion_def_ids(trigger_id: int) -> list[int]:
     )]
 
 
-# ---------- untis events ----------
 
-def get_untis_event(period_id: str) -> Optional[sqlite3.Row]:
-    return get_conn().execute(
-        "SELECT * FROM untis_events WHERE period_id=?", (period_id,)
-    ).fetchone()
-
-
-def upsert_untis_event(period_id: str, google_event_id: str, event_date: str, fingerprint: str) -> None:
-    with _lock:
-        get_conn().execute(
-            "INSERT INTO untis_events(period_id,google_event_id,event_date,fingerprint,last_synced_at) "
-            "VALUES(?,?,?,?,?) "
-            "ON CONFLICT(period_id) DO UPDATE SET "
-            "google_event_id=excluded.google_event_id, event_date=excluded.event_date, "
-            "fingerprint=excluded.fingerprint, last_synced_at=excluded.last_synced_at",
-            (period_id, google_event_id, event_date, fingerprint, datetime.utcnow().isoformat()),
-        )
-
-
-def list_untis_events_in_range(start_date: str, end_date: str) -> list[sqlite3.Row]:
-    return list(get_conn().execute(
-        "SELECT * FROM untis_events WHERE event_date >= ? AND event_date <= ?",
-        (start_date, end_date),
-    ))
-
-
-def delete_untis_event(period_id: str) -> None:
-    with _lock:
-        get_conn().execute("DELETE FROM untis_events WHERE period_id=?", (period_id,))

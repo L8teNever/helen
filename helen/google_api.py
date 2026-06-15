@@ -34,7 +34,6 @@ log = logging.getLogger("helen.google")
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 HELEN_CAL_TITLE = "Helen"
-HELEN_UNTIS_CAL_TITLE = "Helen-Untis"
 COMPLETED_COLOR_ID = "8"  # graphite — visually "done"
 
 
@@ -163,9 +162,7 @@ def ensure_helen_calendar() -> str:
     return _ensure_calendar(HELEN_CAL_TITLE, "helen_calendar_id")
 
 
-def ensure_helen_untis_calendar() -> str:
-    """Find or create the 'Helen-Untis' calendar for school timetable. Returns its id."""
-    return _ensure_calendar(HELEN_UNTIS_CAL_TITLE, "helen_untis_calendar_id")
+
 
 
 def create_event(
@@ -216,21 +213,7 @@ def update_event(event_id: str, summary: str, description: str, completed: bool,
     return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
 
 
-def patch_event_fields(
-    event_id: str, summary: str, description: str, start_iso: str, end_iso: str,
-    tz: str, color_id: Optional[str], calendar_id: Optional[str] = None,
-) -> dict:
-    """Patch summary/description/start/end/colorId — used by the Untis sync path."""
-    svc = calendar_service()
-    cal_id = calendar_id or ensure_helen_calendar()
-    body: dict = {
-        "summary": summary,
-        "description": description,
-        "start": {"dateTime": start_iso, "timeZone": tz},
-        "end": {"dateTime": end_iso, "timeZone": tz},
-        "colorId": color_id,  # null clears the override colour
-    }
-    return svc.events().patch(calendarId=cal_id, eventId=event_id, body=body).execute()
+
 
 
 def list_events(
